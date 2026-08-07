@@ -276,6 +276,10 @@ func _on_ai_assistant_replied(text: String) -> void:
 func _open_ai_chat_panel() -> void:
 	if not _ai_chat_panel:
 		return
+	if _context_menu and _context_menu.visible:
+		_context_menu.hide()
+	if _care_panel and _care_panel.visible:
+		_care_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0

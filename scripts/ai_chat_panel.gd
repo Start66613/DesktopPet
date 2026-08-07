@@ -42,7 +42,7 @@ var _root: Control
 var _scroll: ScrollContainer
 var _messages: VBoxContainer
 var _input: TextEdit
-var _send_button: TextureButton
+var _send_button: Button
 var _status_label: Label
 var _request: HTTPRequest
 var _typing_row: Control
@@ -98,6 +98,7 @@ func open_at(screen_position: Vector2i) -> void:
 	show()
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
 	grab_focus()
+	call_deferred("_bring_to_front")
 	_play_open_animation()
 	_input.grab_focus()
 	if not _is_configured():
@@ -107,6 +108,12 @@ func open_at(screen_position: Vector2i) -> void:
 func hide_panel() -> void:
 	_settings_overlay.visible = false
 	hide()
+
+
+func _bring_to_front() -> void:
+	if visible:
+		move_to_foreground()
+		grab_focus()
 
 
 func _build_ui() -> void:
@@ -155,17 +162,15 @@ func _build_ui() -> void:
 	_root.add_child(settings_button)
 	_bind_button_motion(settings_button, 1.08, 3.0)
 
-	var minimize_button := _make_texture_button(CHAT_UI_DIR + "/minimize.png", Vector2(735, 31), Vector2(104, 104))
+	var minimize_button := _make_hit_button(Vector2(720, 24), Vector2(130, 130))
 	minimize_button.tooltip_text = "最小化"
 	minimize_button.pressed.connect(_minimize_window)
 	_root.add_child(minimize_button)
-	_bind_button_motion(minimize_button, 1.06, -2.0)
 
-	var close_button := _make_texture_button(CHAT_UI_DIR + "/close.png", Vector2(834, 31), Vector2(105, 105))
+	var close_button := _make_hit_button(Vector2(825, 24), Vector2(130, 130))
 	close_button.tooltip_text = "关闭"
 	close_button.pressed.connect(hide_panel)
 	_root.add_child(close_button)
-	_bind_button_motion(close_button, 1.06, 2.0)
 
 	_scroll = ScrollContainer.new()
 	_scroll.position = Vector2(60, 158)
@@ -196,11 +201,10 @@ func _build_ui() -> void:
 	_input.gui_input.connect(_on_input_gui_input)
 	_root.add_child(_input)
 
-	_send_button = _make_texture_button(CHAT_UI_DIR + "/send.png", Vector2(771, 1168), Vector2(143, 143))
+	_send_button = _make_hit_button(Vector2(768, 1158), Vector2(148, 154))
 	_send_button.tooltip_text = "发送"
 	_send_button.pressed.connect(_send_current_message)
 	_root.add_child(_send_button)
-	_bind_button_motion(_send_button, 1.08, -3.0)
 
 	_request = HTTPRequest.new()
 	_request.timeout = 60.0
@@ -216,13 +220,14 @@ func _build_settings_overlay() -> void:
 	_settings_overlay.position = Vector2.ZERO
 	_settings_overlay.size = BASE_SIZE
 	_settings_overlay.z_index = 20
-	_settings_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	_settings_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_settings_overlay.visible = false
 	_root.add_child(_settings_overlay)
 
 	var panel := PanelContainer.new()
 	panel.position = Vector2(148, 238)
 	panel.size = Vector2(665, 790)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = Color("fff8f3")
 	panel_style.border_color = Color("d99aa5")
@@ -716,6 +721,21 @@ func _make_texture_button(path: String, node_position: Vector2, node_size: Vecto
 	button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
 	button.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	button.focus_mode = Control.FOCUS_NONE
+	return button
+
+
+func _make_hit_button(node_position: Vector2, node_size: Vector2) -> Button:
+	var button := Button.new()
+	button.position = node_position
+	button.size = node_size
+	button.flat = true
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var empty := StyleBoxEmpty.new()
+	button.add_theme_stylebox_override("normal", empty)
+	button.add_theme_stylebox_override("hover", empty)
+	button.add_theme_stylebox_override("pressed", empty)
+	button.add_theme_stylebox_override("focus", empty)
 	return button
 
 
