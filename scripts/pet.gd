@@ -9,19 +9,25 @@ extends Node2D
 const SPRITES_DIR := "res://assets/sprites"
 const MOVEMENT_DIR := "res://assets/movement"
 const SPRITE_SCALE := 1.0
-const PET_VERTICAL_OFFSET := 12.0
+const PET_VERTICAL_OFFSET := 20.0
 const DEFAULT_FPS := 8.0
 const SLEEP_ANIMATION := "sleep"
 const SLEEP_ENTER_ANIMATION := "sleep_enter"
 const SLEEP_IDLE_ANIMATION := "sleep_idle"
+const SLEEP_TURN_ANIMATION := "sleep_turn"
 const SLEEP_IDLE_FPS := 3.0
 const SLEEP_CHANCE := 0.28
 const SLEEP_MIN_DURATION := 12.0
 const SLEEP_MAX_DURATION := 22.0
+const SLEEP_TURN_MIN_INTERVAL := 4.5
+const SLEEP_TURN_MAX_INTERVAL := 8.0
+const SLEEP_TURN_CHANCE := 0.62
+const SLEEP_TURN_MIN_HOLD := 0.85
+const SLEEP_TURN_MAX_HOLD := 1.25
 const DRAG_CURSOR_ANCHOR_OFFSET := Vector2(0, -30)
-const DRAG_SWAY_MAX := 0.26
-const DRAG_SWAY_RESPONSE := 14.0
-const DRAG_SWAY_DAMPING := 3.5
+const DRAG_SWAY_MAX := 0.36
+const DRAG_SWAY_RESPONSE := 16.0
+const DRAG_SWAY_DAMPING := 2.6
 const ALPHA_THRESHOLD := 0.01  # alpha 低于此值视为透明
 const PASSTHROUGH_ROW_STEP := 3
 const PASSTHROUGH_MARGIN := 2
@@ -40,6 +46,7 @@ const SpeechBubble := preload("res://scripts/speech_bubble.gd")
 
 # ---- 状态机 ----
 enum State { IDLE, WALK, SLEEP, WAKE }
+enum SleepTurnPhase { NONE, FORWARD, HOLD, BACKWARD }
 var state: int = State.IDLE
 var _state_time := 0.0
 var _state_duration := 0.0
@@ -47,6 +54,10 @@ var _move_direction := Vector2.ZERO
 var _rng := RandomNumberGenerator.new()
 var _wandering_enabled := true
 var _window_position := Vector2.ZERO
+var _sleep_turn_phase: int = SleepTurnPhase.NONE
+var _sleep_turn_hold_time := 0.0
+var _next_sleep_turn_time := 0.0
+var _wake_after_sleep_turn := false
 
 # ---- 拖动 ----
 var _dragging := false
@@ -113,14 +124,15 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	_speech_time_left -= delta
-	if _bubble_time_left > 0.0:
-		_bubble_time_left -= delta
-		if _bubble_time_left <= 0.0:
-			_bubble.clear_message()
-			_update_passthrough()
-	elif _speech_time_left <= 0.0:
-		_say_random()
+	if state != State.SLEEP:
+		_speech_time_left -= delta
+		if _bubble_time_left > 0.0:
+			_bubble_time_left -= delta
+			if _bubble_time_left <= 0.0:
+				_bubble.clear_message()
+				_update_passthrough()
+		elif _speech_time_left <= 0.0:
+			_say_random()
 
 	if _dragging:
 		_update_drag_sway(delta)
@@ -130,8 +142,12 @@ func _process(delta: float) -> void:
 
 	_state_time += delta
 	if state == State.SLEEP:
+		_update_sleep_turn(delta)
 		if _state_time >= _state_duration:
-			_enter_state(State.WAKE)
+			if _sleep_turn_phase == SleepTurnPhase.NONE:
+				_enter_state(State.WAKE)
+			else:
+				_wake_after_sleep_turn = true
 		return
 	if state == State.WAKE or not _wandering_enabled:
 		return
@@ -152,7 +168,7 @@ func _create_bubble() -> void:
 
 	_bubble = SpeechBubble.new()
 	_bubble.name = "SpeechBubble"
-	_bubble.position = Vector2(40, 0)
+	_bubble.position = Vector2(50, 0)
 	_bubble.z_index = 100
 	_cjk_font = _load_system_font(PET_FONT_PATH)
 	_emoji_font = _load_system_font("C:/Windows/Fonts/seguiemj.ttf")
@@ -169,6 +185,8 @@ func _load_system_font(path: String) -> Font:
 
 
 func _show_bubble(message: String, duration := 2.8, emoji := "") -> void:
+	if state == State.SLEEP:
+		return
 	_bubble.set_message(message, emoji)
 	_bubble_time_left = duration
 	_update_passthrough()
@@ -182,6 +200,13 @@ func _say_random(duration := 3.0) -> void:
 
 func _schedule_next_speech() -> void:
 	_speech_time_left = _rng.randf_range(14.0, 28.0)
+
+
+func _hide_bubble() -> void:
+	_bubble_time_left = 0.0
+	if _bubble and _bubble.visible:
+		_bubble.clear_message()
+		_update_passthrough()
 
 
 func _create_context_menu() -> void:
@@ -271,7 +296,6 @@ func _on_context_menu_id_pressed(id: int) -> void:
 			_show_bubble("我回来啦！")
 		MENU_SLEEP:
 			_enter_state(State.SLEEP)
-			_show_bubble("晚安喵……", 2.8, "💤")
 		MENU_EXIT:
 			get_tree().quit()
 
@@ -487,6 +511,8 @@ func _load_movement_animations(frames: SpriteFrames) -> void:
 								_copy_animation(frames, direction, source, source_animation)
 								if direction == SLEEP_IDLE_ANIMATION:
 									frames.set_animation_speed(SLEEP_IDLE_ANIMATION, SLEEP_IDLE_FPS)
+								elif direction == SLEEP_TURN_ANIMATION:
+									frames.set_animation_loop(SLEEP_TURN_ANIMATION, false)
 		direction = root.get_next()
 	root.list_dir_end()
 
@@ -567,6 +593,12 @@ func _enter_state(s: int) -> void:
 			_update_walk_animation()
 		State.SLEEP:
 			_state_duration = _rng.randf_range(SLEEP_MIN_DURATION, SLEEP_MAX_DURATION)
+			_sleep_turn_phase = SleepTurnPhase.NONE
+			_sleep_turn_hold_time = 0.0
+			_wake_after_sleep_turn = false
+			_schedule_next_sleep_turn()
+			_schedule_next_speech()
+			_hide_bubble()
 			_play(SLEEP_ENTER_ANIMATION)
 		State.WAKE:
 			_state_duration = 0.0
@@ -588,6 +620,31 @@ func _choose_walk_direction() -> void:
 		Vector2(1, 1)
 	]
 	_move_direction = directions[_rng.randi_range(0, directions.size() - 1)].normalized()
+
+
+func _schedule_next_sleep_turn() -> void:
+	_next_sleep_turn_time = _rng.randf_range(SLEEP_TURN_MIN_INTERVAL, SLEEP_TURN_MAX_INTERVAL)
+
+
+func _update_sleep_turn(delta: float) -> void:
+	if _sleep_turn_phase == SleepTurnPhase.HOLD:
+		_sleep_turn_hold_time -= delta
+		if _sleep_turn_hold_time <= 0.0:
+			_sleep_turn_phase = SleepTurnPhase.BACKWARD
+			sprite.play_backwards(SLEEP_TURN_ANIMATION)
+		return
+
+	if _sleep_turn_phase != SleepTurnPhase.NONE or sprite.animation != SLEEP_IDLE_ANIMATION:
+		return
+
+	_next_sleep_turn_time -= delta
+	if _next_sleep_turn_time > 0.0:
+		return
+
+	_schedule_next_sleep_turn()
+	if sprite.sprite_frames.has_animation(SLEEP_TURN_ANIMATION) and _rng.randf() <= SLEEP_TURN_CHANCE:
+		_sleep_turn_phase = SleepTurnPhase.FORWARD
+		_play(SLEEP_TURN_ANIMATION)
 
 
 func _update_walk_animation() -> void:
@@ -690,6 +747,19 @@ func _on_animation_finished() -> void:
 			_play(SLEEP_IDLE_ANIMATION)
 		else:
 			_play(SLEEP_ANIMATION)
+	elif state == State.SLEEP and sprite.animation == SLEEP_TURN_ANIMATION:
+		if _sleep_turn_phase == SleepTurnPhase.FORWARD:
+			sprite.frame = sprite.sprite_frames.get_frame_count(SLEEP_TURN_ANIMATION) - 1
+			sprite.pause()
+			_sleep_turn_phase = SleepTurnPhase.HOLD
+			_sleep_turn_hold_time = _rng.randf_range(SLEEP_TURN_MIN_HOLD, SLEEP_TURN_MAX_HOLD)
+		elif _sleep_turn_phase == SleepTurnPhase.BACKWARD:
+			_sleep_turn_phase = SleepTurnPhase.NONE
+			if _wake_after_sleep_turn:
+				_enter_state(State.WAKE)
+			else:
+				_schedule_next_sleep_turn()
+				_play(SLEEP_IDLE_ANIMATION)
 	elif state == State.WAKE and sprite.animation == SLEEP_ENTER_ANIMATION:
 		_enter_state(State.IDLE)
 
@@ -756,7 +826,7 @@ func _input(event: InputEvent) -> void:
 				var mouse_position := DisplayServer.mouse_get_position()
 				var mouse_delta := mouse_position - _drag_last_mouse_position
 				_drag_last_mouse_position = mouse_position
-				_drag_sway_target = clampf(float(mouse_delta.x) * 0.016, -DRAG_SWAY_MAX, DRAG_SWAY_MAX)
+				_drag_sway_target = clampf(float(mouse_delta.x) * 0.022, -DRAG_SWAY_MAX, DRAG_SWAY_MAX)
 			_position_window_at_drag_anchor()
 
 
