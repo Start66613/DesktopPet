@@ -1,0 +1,140 @@
+[gd_resource type="SpriteFrames" format=3]
+
+[ext_resource type="Texture2D" path="textures/1786100826445-2i5zhjkyrwr_spritesheet.png" id="1_sheet"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0000"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(0, 0, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0001"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(256, 0, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0002"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(512, 0, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0003"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(768, 0, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0004"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(0, 256, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0005"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(256, 256, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0006"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(512, 256, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0007"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(768, 256, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0008"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(0, 512, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0009"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(256, 512, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0010"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(512, 512, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0011"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(768, 512, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0012"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(0, 768, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0013"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(256, 768, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0014"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(512, 768, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0015"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(768, 768, 256, 256)
+
+[resource]
+resource_name = "1786100826445-2i5zhjkyrwr_frames"
+animations = [{
+"frames": [{
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0000")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0001")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0002")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0003")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0004")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0005")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0006")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0007")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0008")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0009")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0010")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0011")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0012")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0013")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0014")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0015")
+}],
+"loop": true,
+"name": &"躺下睡觉",
+"speed": 8.0
+}]

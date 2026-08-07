@@ -10,19 +10,28 @@ const SPRITES_DIR := "res://assets/sprites"
 const MOVEMENT_DIR := "res://assets/movement"
 const SPRITE_SCALE := 1.0
 const DEFAULT_FPS := 8.0
+const SLEEP_ANIMATION := "sleep"
+const SLEEP_ENTER_ANIMATION := "sleep_enter"
+const SLEEP_CHANCE := 0.28
+const SLEEP_MIN_DURATION := 12.0
+const SLEEP_MAX_DURATION := 22.0
+const DRAG_ANIMATION := "drag"
+const DRAG_ANIMATION_FPS := 8.0
+const DRAG_DISPLAY_SCALE := 1.5
 const ALPHA_THRESHOLD := 0.01  # alpha 低于此值视为透明
 const WALK_SPEED := 95.0
 const DRAG_THRESHOLD := 8.0
 const MENU_TALK := 1
 const MENU_TOGGLE_WANDER := 2
 const MENU_CENTER := 3
+const MENU_SLEEP := 4
 const MENU_EXIT := 99
 const SpeechBubble := preload("res://scripts/speech_bubble.gd")
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 
 # ---- 状态机 ----
-enum State { IDLE, WALK }
+enum State { IDLE, WALK, SLEEP, WAKE }
 var state: int = State.IDLE
 var _state_time := 0.0
 var _state_duration := 0.0
@@ -82,6 +91,7 @@ func _ready() -> void:
 
 	# 帧切换时实时更新穿透区域
 	sprite.frame_changed.connect(_on_frame_changed)
+	sprite.animation_finished.connect(_on_animation_finished)
 
 	_enter_state(state)
 	# 设置初始帧的穿透多边形
@@ -102,13 +112,17 @@ func _process(delta: float) -> void:
 
 	if _dragging or (_context_menu and _context_menu.visible):
 		return
-	if not _wandering_enabled:
-		return
 
 	_state_time += delta
+	if state == State.SLEEP:
+		if _state_time >= _state_duration:
+			_enter_state(State.WAKE)
+		return
+	if state == State.WAKE or not _wandering_enabled:
+		return
 	if state == State.IDLE:
 		if _state_time >= _state_duration:
-			_enter_state(State.WALK)
+			_enter_state(State.SLEEP if _rng.randf() < SLEEP_CHANCE else State.WALK)
 	elif state == State.WALK:
 		_move_window(delta)
 		if _state_time >= _state_duration:
@@ -163,6 +177,7 @@ func _create_context_menu() -> void:
 	_context_menu.add_check_item("自动散步", MENU_TOGGLE_WANDER)
 	_context_menu.set_item_checked(_context_menu.get_item_index(MENU_TOGGLE_WANDER), true)
 	_context_menu.add_item("回到屏幕中央", MENU_CENTER)
+	_context_menu.add_item("让她睡觉", MENU_SLEEP)
 	_context_menu.add_separator()
 	_context_menu.add_item("退出桌宠", MENU_EXIT)
 	_context_menu.id_pressed.connect(_on_context_menu_id_pressed)
@@ -172,7 +187,7 @@ func _create_context_menu() -> void:
 
 func _open_context_menu() -> void:
 	_dragging = false
-	_enter_state(State.IDLE)
+	_finish_drag_visual()
 	DisplayServer.window_set_mouse_passthrough(PackedVector2Array())
 	_context_menu.position = Vector2i(get_viewport().get_mouse_position())
 	_context_menu.popup()
@@ -191,6 +206,9 @@ func _on_context_menu_id_pressed(id: int) -> void:
 		MENU_CENTER:
 			_center_on_current_screen()
 			_show_bubble("我回来啦！")
+		MENU_SLEEP:
+			_enter_state(State.SLEEP)
+			_show_bubble("晚安喵……", 2.8, "💤")
 		MENU_EXIT:
 			get_tree().quit()
 
@@ -351,7 +369,7 @@ func _build_sprite_frames() -> SpriteFrames:
 			frames.remove_animation(action)
 		frames.add_animation(action)
 		frames.set_animation_loop(action, true)
-		frames.set_animation_speed(action, DEFAULT_FPS)
+		frames.set_animation_speed(action, DRAG_ANIMATION_FPS if action == DRAG_ANIMATION else DEFAULT_FPS)
 		for ff in files:
 			var tex := load(SPRITES_DIR + "/" + action + "/" + ff) as Texture2D
 			if tex:
@@ -378,7 +396,10 @@ func _load_movement_animations(frames: SpriteFrames) -> void:
 				if source:
 					for source_animation in source.get_animation_names():
 						if source.get_frame_count(source_animation) > 0:
-							_copy_animation(frames, direction, source, source_animation)
+							if direction == "sleep":
+								_load_sleep_animations(frames, source, source_animation)
+							else:
+								_copy_animation(frames, direction, source, source_animation)
 		direction = root.get_next()
 	root.list_dir_end()
 
@@ -419,6 +440,26 @@ func _copy_animation(target: SpriteFrames, animation_name: String, source: Sprit
 			target.add_frame(animation_name, texture, duration)
 
 
+func _load_sleep_animations(target: SpriteFrames, source: SpriteFrames, source_animation: String) -> void:
+	var frame_count := source.get_frame_count(source_animation)
+	var sleep_start := maxi(frame_count - 4, 0)
+	_copy_animation_range(target, SLEEP_ENTER_ANIMATION, source, source_animation, 0, sleep_start + 1, false, source.get_animation_speed(source_animation))
+	_copy_animation_range(target, SLEEP_ANIMATION, source, source_animation, sleep_start, frame_count, true, 2.0)
+
+
+func _copy_animation_range(target: SpriteFrames, animation_name: String, source: SpriteFrames, source_animation: String, start: int, end: int, loop: bool, speed: float) -> void:
+	if target.has_animation(animation_name):
+		target.remove_animation(animation_name)
+	target.add_animation(animation_name)
+	target.set_animation_loop(animation_name, loop)
+	target.set_animation_speed(animation_name, speed)
+	for index in range(start, end):
+		var texture := source.get_frame_texture(source_animation, index)
+		var duration := source.get_frame_duration(source_animation, index)
+		if texture:
+			target.add_frame(animation_name, texture, duration)
+
+
 # =====================================================================
 #  状态机
 # =====================================================================
@@ -437,6 +478,15 @@ func _enter_state(s: int) -> void:
 			_state_duration = _rng.randf_range(4.5, 8.5)
 			_choose_walk_direction()
 			_update_walk_animation()
+		State.SLEEP:
+			_state_duration = _rng.randf_range(SLEEP_MIN_DURATION, SLEEP_MAX_DURATION)
+			_play(SLEEP_ENTER_ANIMATION)
+		State.WAKE:
+			_state_duration = 0.0
+			if sprite.sprite_frames.has_animation(SLEEP_ENTER_ANIMATION):
+				sprite.play_backwards(SLEEP_ENTER_ANIMATION)
+			else:
+				_enter_state(State.IDLE)
 
 
 func _choose_walk_direction() -> void:
@@ -522,6 +572,30 @@ func _play(anim: String) -> void:
 		sprite.play(sprite.sprite_frames.get_animation_names()[0])
 
 
+func _begin_drag_visual() -> void:
+	if _bubble and _bubble.visible:
+		_bubble.clear_message()
+		_bubble_time_left = 0.0
+		_schedule_next_speech()
+	if state == State.SLEEP or state == State.WAKE:
+		_enter_state(State.IDLE)
+	sprite.scale = Vector2(DRAG_DISPLAY_SCALE, DRAG_DISPLAY_SCALE)
+	_play(DRAG_ANIMATION)
+
+
+func _finish_drag_visual() -> void:
+	sprite.scale = Vector2(SPRITE_SCALE, SPRITE_SCALE)
+	_enter_state(State.IDLE)
+	_state_duration = 3.0
+
+
+func _on_animation_finished() -> void:
+	if state == State.SLEEP and sprite.animation == SLEEP_ENTER_ANIMATION:
+		_play(SLEEP_ANIMATION)
+	elif state == State.WAKE and sprite.animation == SLEEP_ENTER_ANIMATION:
+		_enter_state(State.IDLE)
+
+
 # =====================================================================
 #  输入
 # =====================================================================
@@ -554,21 +628,31 @@ func _input(event: InputEvent) -> void:
 			var was_click := not _did_drag
 			_dragging = false
 			_window_position = Vector2(DisplayServer.window_get_position())
-			# 松手后恢复穿透
-			_update_passthrough()
 			if was_click:
 				_on_pet_clicked()
+			else:
+				_finish_drag_visual()
+			# 松手后恢复穿透
+			_update_passthrough()
 	elif event is InputEventMouseMotion and _dragging:
 		var delta := DisplayServer.mouse_get_position() - _drag_mouse_start
 		if delta.length() >= DRAG_THRESHOLD:
-			_did_drag = true
-		var dragged_position := _drag_window_start + delta
-		_window_position = Vector2(dragged_position)
-		DisplayServer.window_set_position(dragged_position)
+			if not _did_drag:
+				_did_drag = true
+				_begin_drag_visual()
+			var dragged_position := _drag_window_start + delta
+			_window_position = Vector2(dragged_position)
+			DisplayServer.window_set_position(dragged_position)
 
 
 func _on_pet_clicked() -> void:
 	# 点击后给桌宠一段安静的回应，避免立刻被自动闲逛打断。
+	if state == State.SLEEP:
+		_enter_state(State.WAKE)
+		_show_bubble("唔……你叫我呀？", 3.0, "💤")
+		return
+	if state == State.WAKE:
+		return
 	_enter_state(State.IDLE)
 	_state_duration = 5.5
 	_say_random()
