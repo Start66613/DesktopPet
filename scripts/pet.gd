@@ -8,6 +8,7 @@ extends Node2D
 
 const SPRITES_DIR := "res://assets/sprites"
 const MOVEMENT_DIR := "res://assets/movement"
+const ACTIVITY_DIR := "res://assets/activities"
 const SPRITE_SCALE := 1.0
 const PET_VERTICAL_OFFSET := 20.0
 const DEFAULT_FPS := 8.0
@@ -39,6 +40,7 @@ const MENU_CENTER := 3
 const MENU_SLEEP := 4
 const MENU_CARE := 5
 const MENU_EXIT := 99
+const BADMINTON_ANIMATION := "badminton"
 const UI_TEXTURE_DIR := "res://assets/ui_source/generated/1-animations/textures"
 const CARE_UI_DIR := "res://assets/care/runtime/ui"
 const PET_FONT_PATH := "res://assets/fonts/ZCOOLKuaiLe-Regular.ttf"
@@ -46,11 +48,12 @@ const SpeechBubble := preload("res://scripts/speech_bubble.gd")
 const CareSystem := preload("res://scripts/care_system.gd")
 const CarePanel := preload("res://scripts/care_panel.gd")
 const CareFeedback := preload("res://scripts/care_feedback.gd")
+const AIChatPanel := preload("res://scripts/ai_chat_panel.gd")
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 
 # ---- 状态机 ----
-enum State { IDLE, WALK, SLEEP, WAKE }
+enum State { IDLE, WALK, SLEEP, WAKE, ACTIVITY }
 enum SleepTurnPhase { NONE, FORWARD, HOLD, BACKWARD }
 var state: int = State.IDLE
 var _state_time := 0.0
@@ -63,6 +66,7 @@ var _sleep_turn_phase: int = SleepTurnPhase.NONE
 var _sleep_turn_hold_time := 0.0
 var _next_sleep_turn_time := 0.0
 var _wake_after_sleep_turn := false
+var _active_activity := ""
 
 # ---- 拖动 ----
 var _dragging := false
@@ -93,6 +97,7 @@ var _emoji_font: Font
 var _care_system: PetCareSystem
 var _care_panel: PetCarePanel
 var _care_feedback: PetCareFeedback
+var _ai_chat_panel
 var _comfort_cooldown := 0.0
 var _need_lines := {
 	"fullness": {"text": "肚子在小声提醒我啦……可以一起吃点东西吗？", "emoji": "🍰"},
@@ -140,13 +145,17 @@ func _ready() -> void:
 	_update_passthrough()
 	_schedule_next_speech()
 	call_deferred("_show_bubble", "你好呀，我会陪着你 (^_^)", 4.0, "✨")
-	if OS.get_cmdline_user_args().has("--show-care-panel"):
+	var startup_args := OS.get_cmdline_args()
+	var user_args := OS.get_cmdline_user_args()
+	if startup_args.has("--show-care-panel") or user_args.has("--show-care-panel"):
 		call_deferred("_open_care_panel")
+	if startup_args.has("--show-chat-panel") or user_args.has("--show-chat-panel"):
+		call_deferred("_open_ai_chat_panel")
 
 
 func _process(delta: float) -> void:
 	_comfort_cooldown = maxf(_comfort_cooldown - delta, 0.0)
-	if state != State.SLEEP:
+	if state != State.SLEEP and state != State.ACTIVITY:
 		_speech_time_left -= delta
 		if _bubble_time_left > 0.0:
 			_bubble_time_left -= delta
@@ -221,7 +230,14 @@ func _create_care_features() -> void:
 	_care_panel = CarePanel.new()
 	_care_panel.name = "CarePanel"
 	_care_panel.configure(_care_system, _cjk_font)
+	_care_panel.chat_requested.connect(_open_ai_chat_panel)
 	add_child(_care_panel)
+
+	_ai_chat_panel = AIChatPanel.new()
+	_ai_chat_panel.name = "AIChatPanel"
+	_ai_chat_panel.configure(_cjk_font, _care_system)
+	_ai_chat_panel.assistant_replied.connect(_on_ai_assistant_replied)
+	add_child(_ai_chat_panel)
 
 
 func _on_care_action_performed(result: Dictionary) -> void:
@@ -239,8 +255,40 @@ func _on_care_action_performed(result: Dictionary) -> void:
 	var emoji: String = result.get("emoji", "")
 	if not message.is_empty():
 		_show_bubble(message, 3.6, emoji)
+	var activity := String(result.get("activity", ""))
+	if bool(result.get("success", false)) and not activity.is_empty():
+		_active_activity = activity
+		_enter_state(State.ACTIVITY)
 	if bool(result.get("success", false)) and _care_feedback:
 		_care_feedback.show_feedback(result.get("effect", "sparkle"), result.get("feedback", ""))
+
+
+func _on_ai_assistant_replied(text: String) -> void:
+	if _care_system:
+		_care_system.apply_ai_chat_reward()
+	if state != State.SLEEP:
+		var bubble_text := text.replace("\n", " ").strip_edges()
+		if bubble_text.length() > 64:
+			bubble_text = bubble_text.substr(0, 64) + "…"
+		_show_bubble(bubble_text, 5.0, "💬")
+
+
+func _open_ai_chat_panel() -> void:
+	if not _ai_chat_panel:
+		return
+	var screen := DisplayServer.window_get_current_screen()
+	if screen < 0:
+		screen = 0
+	var usable := DisplayServer.screen_get_usable_rect(screen)
+	var pet_position := DisplayServer.window_get_position()
+	var pet_size := DisplayServer.window_get_size()
+	var panel_size: Vector2i = _ai_chat_panel.size
+	var panel_x := pet_position.x + pet_size.x + 14
+	if panel_x + panel_size.x > usable.end.x:
+		panel_x = pet_position.x - panel_size.x - 14
+	panel_x = clampi(panel_x, usable.position.x, usable.end.x - panel_size.x)
+	var panel_y := clampi(pet_position.y - 190, usable.position.y, usable.end.y - panel_size.y)
+	_ai_chat_panel.open_at(Vector2i(panel_x, panel_y))
 
 
 func _open_care_panel() -> void:
@@ -266,6 +314,8 @@ func _open_care_panel() -> void:
 
 func _show_bubble(message: String, duration := 2.8, emoji := "") -> void:
 	if state == State.SLEEP:
+		return
+	if state == State.ACTIVITY:
 		return
 	_bubble.set_message(message, emoji)
 	_bubble_time_left = duration
@@ -410,7 +460,7 @@ func _on_context_menu_id_pressed(id: int) -> void:
 		MENU_CARE:
 			_open_care_panel()
 		MENU_TALK:
-			_say_random(3.5)
+			_open_ai_chat_panel()
 		MENU_TOGGLE_WANDER:
 			_wandering_enabled = not _wandering_enabled
 			var index := _context_menu.get_item_index(MENU_TOGGLE_WANDER)
@@ -618,6 +668,7 @@ func _build_sprite_frames() -> SpriteFrames:
 				frames.add_frame(action, tex)
 
 	_load_movement_animations(frames)
+	_load_activity_animations(frames)
 	return frames
 
 
@@ -647,6 +698,29 @@ func _load_movement_animations(frames: SpriteFrames) -> void:
 								elif direction == SLEEP_TURN_ANIMATION:
 									frames.set_animation_loop(SLEEP_TURN_ANIMATION, false)
 		direction = root.get_next()
+	root.list_dir_end()
+
+
+func _load_activity_animations(frames: SpriteFrames) -> void:
+	var root := DirAccess.open(ACTIVITY_DIR)
+	if root == null:
+		return
+	root.list_dir_begin()
+	var activity_dir := root.get_next()
+	while activity_dir != "":
+		if root.current_is_dir() and not activity_dir.begins_with("."):
+			var frames_path := _find_frames_resource(ACTIVITY_DIR + "/" + activity_dir)
+			if not frames_path.is_empty():
+				var source := load(frames_path) as SpriteFrames
+				if source:
+					for source_animation in source.get_animation_names():
+						if source.get_frame_count(source_animation) > 0:
+							var target_name := activity_dir.to_lower()
+							_copy_animation(frames, target_name, source, source_animation)
+							frames.set_animation_loop(target_name, false)
+							frames.set_animation_speed(target_name, 7.0)
+							break
+		activity_dir = root.get_next()
 	root.list_dir_end()
 
 
@@ -741,6 +815,9 @@ func _enter_state(s: int) -> void:
 				sprite.play_backwards(SLEEP_ENTER_ANIMATION)
 			else:
 				_enter_state(State.IDLE)
+		State.ACTIVITY:
+			_state_duration = 0.0
+			_play(_active_activity)
 
 
 func _choose_walk_direction() -> void:
@@ -877,7 +954,11 @@ func _finish_drag_visual() -> void:
 
 
 func _on_animation_finished() -> void:
-	if state == State.SLEEP and sprite.animation == SLEEP_ENTER_ANIMATION:
+	if state == State.ACTIVITY:
+		_active_activity = ""
+		_enter_state(State.IDLE)
+		_state_duration = 4.0
+	elif state == State.SLEEP and sprite.animation == SLEEP_ENTER_ANIMATION:
 		if sprite.sprite_frames.has_animation(SLEEP_IDLE_ANIMATION):
 			_play(SLEEP_IDLE_ANIMATION)
 		else:

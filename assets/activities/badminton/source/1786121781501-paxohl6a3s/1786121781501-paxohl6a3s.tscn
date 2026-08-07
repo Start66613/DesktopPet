@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="SpriteFrames" path="1786121781501-paxohl6a3s_frames.tres" id="1_frames"]
+
+[node name="1786121781501Paxohl6a3s" type="AnimatedSprite2D"]
+texture_filter = 1
+sprite_frames = ExtResource("1_frames")
+animation = &"羽毛球"
+autoplay = "羽毛球"
+centered = false

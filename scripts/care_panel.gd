@@ -1,6 +1,8 @@
 extends Window
 class_name PetCarePanel
 
+signal chat_requested
+
 const BASE_PANEL_SIZE := Vector2i(440, 470)
 const UI_SCALE := 1.32
 const PANEL_SIZE := Vector2i(581, 620)
@@ -306,7 +308,9 @@ func _build_toast(root: Control) -> void:
 
 
 func _on_action_pressed(action: String) -> void:
-	if action in ["meal", "drink", "play", "gift"]:
+	if action == "chat":
+		chat_requested.emit()
+	elif action in ["meal", "drink", "play", "gift"]:
 		_open_picker(action)
 	elif _care_system:
 		_care_system.perform_action(action)

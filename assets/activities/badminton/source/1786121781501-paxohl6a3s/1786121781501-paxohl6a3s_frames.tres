@@ -1,0 +1,76 @@
+[gd_resource type="SpriteFrames" format=3]
+
+[ext_resource type="Texture2D" path="textures/1786121781501-paxohl6a3s_spritesheet.png" id="1_sheet"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0000"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(0, 0, 254, 255)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0001"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(254, 0, 254, 255)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0002"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(508, 0, 254, 255)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0003"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(0, 255, 254, 255)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0004"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(254, 255, 254, 255)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0005"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(508, 255, 254, 255)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0006"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(0, 510, 254, 255)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0007"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(254, 510, 254, 255)
+
+[resource]
+resource_name = "1786121781501-paxohl6a3s_frames"
+animations = [{
+"frames": [{
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0000")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0001")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0002")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0003")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0004")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0005")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0006")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0007")
+}],
+"loop": true,
+"name": &"羽毛球",
+"speed": 8.0
+}]

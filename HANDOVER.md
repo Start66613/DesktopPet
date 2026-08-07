@@ -178,6 +178,17 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 保留菜单花边、顶部玫瑰、文字可读底色和原有点击区域；菜单交互逻辑未改动。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-012546`。
 
+## 2026-08-08 AI 聊天与羽毛球互动
+
+- `scripts/ai_chat_panel.gd`：新增可拖动的云端 AI 聊天窗口，使用通用 OpenAI 兼容 `chat/completions` 接口；支持 OpenAI、DeepSeek、硅基流动和自定义接口地址，模型、API Key、请求中状态、消息气泡、滚动历史和本机配置。
+- API 配置保存在 `user://ai_chat.cfg`，聊天记录保存在 `user://ai_chat_history.json`，均不写入项目资源；聊天系统提示词会带入当前养成状态，但不会虚构看到用户屏幕内容。
+- 右键菜单“和她说说话”和养成窗口“聊天”按钮现在打开同一个 AI 聊天窗口；AI 回复会以桌宠气泡短暂显示，并增加少量心情和好感。
+- `assets/chat/packages/ai_chat_ui.zip`：完整原始 UI 包；`assets/chat/source/`：原始 Godot 导出；`assets/chat/runtime/ui/`：运行时语义化 UI 组件。
+- `assets/activities/badminton/`：完整羽毛球动画包；`scripts/pet.gd` 将其注册为一次性 `badminton` 活动，动画结束自动回到待机并暂停自动散步期间的移动。
+- `scripts/care_system.gd`：娱乐物品新增“羽毛球”，消耗精力并提升心情/好感；图标为羽毛球动画首帧裁切图。
+- 调试启动聊天窗口：`godot --path "d:\game creat\DesktopPet" -- --show-chat-panel`。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-013246`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。

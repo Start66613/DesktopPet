@@ -31,7 +31,8 @@ const ITEM_CATALOG := {
 		{"name": "一起听歌", "icon": "res://assets/care/runtime/items/headphones.png", "emoji": "🎧", "message": "这首歌很好听，偷偷加入我们的歌单吧。", "changes": {"mood": 15.0, "energy": -2.0, "affection": 2.0}},
 		{"name": "掌机对战", "icon": "res://assets/care/runtime/items/handheld_game.png", "emoji": "🎮", "message": "再来一局！这次我一定能赢你 (>_<)", "changes": {"mood": 20.0, "energy": -7.0, "hydration": -2.0, "affection": 3.0}},
 		{"name": "一起画画", "icon": "res://assets/care/runtime/items/sketchbook.png", "emoji": "🎨", "message": "我把今天画下来啦，旁边这个就是你。", "changes": {"mood": 17.0, "energy": -5.0, "affection": 3.0}},
-		{"name": "故事时间", "icon": "res://assets/care/runtime/items/storybook.png", "emoji": "📖", "message": "再读一页嘛，我还不想让故事结束。", "changes": {"mood": 13.0, "energy": -2.0, "affection": 3.0}}
+		{"name": "故事时间", "icon": "res://assets/care/runtime/items/storybook.png", "emoji": "📖", "message": "再读一页嘛，我还不想让故事结束。", "changes": {"mood": 13.0, "energy": -2.0, "affection": 3.0}},
+		{"name": "羽毛球", "icon": "res://assets/care/runtime/items/badminton.png", "emoji": "🏸", "message": "看我的挥拍！陪我打一个回合吧 (ง •̀_•́)ง", "changes": {"mood": 18.0, "energy": -6.0, "affection": 3.0}, "activity": "badminton"}
 	],
 	"gift": [
 		{"name": "玫瑰花束", "icon": "res://assets/care/runtime/items/flower_bouquet.png", "emoji": "💐", "message": "送给我的吗？我会好好珍惜的……", "changes": {"mood": 13.0, "affection": 8.0}},
@@ -126,6 +127,8 @@ func perform_action(action: String, item_index := -1) -> Dictionary:
 		result["effect"] = _effect_for_action(action)
 		result["feedback"] = item["name"]
 		result["item_name"] = item["name"]
+		if item.has("activity"):
+			result["activity"] = item["activity"]
 	else:
 		match action:
 			"chat":
@@ -153,6 +156,12 @@ func perform_action(action: String, item_index := -1) -> Dictionary:
 	action_performed.emit(result)
 	save_state()
 	return result
+
+
+func apply_ai_chat_reward() -> void:
+	_apply_changes({"mood": 2.0, "affection": 1.0})
+	stats_changed.emit(get_stats())
+	save_state()
 
 
 func save_state() -> void:
