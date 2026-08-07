@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="SpriteFrames" path="1786074189906-rc8f9o5mqs_frames.tres" id="1_frames"]
+
+[node name="1786074189906Rc8f9o5mqs" type="AnimatedSprite2D"]
+texture_filter = 1
+sprite_frames = ExtResource("1_frames")
+animation = &"向后走（表现为像屏幕上方移动）"
+autoplay = "向后走（表现为像屏幕上方移动）"
+centered = false

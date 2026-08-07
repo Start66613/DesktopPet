@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="SpriteFrames" path="1786073999667-qwqlupa631_frames.tres" id="1_frames"]
+
+[node name="1786073999667Qwqlupa631" type="AnimatedSprite2D"]
+texture_filter = 1
+sprite_frames = ExtResource("1_frames")
+animation = &"向右走资源包"
+autoplay = "向右走资源包"
+centered = false

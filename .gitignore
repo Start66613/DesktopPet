@@ -1,0 +1,58 @@
+# Secrets and local credentials
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+secrets/
+credentials/
+*_secret.*
+*_token.*
+*_credentials.*
+
+# Local Codex and Meowa tooling
+.agents/
+skills-lock.json
+
+# Dependencies and virtual environments
+node_modules/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+venv/
+.venv/
+
+# Godot generated state
+.godot/
+*.import
+
+# Build and generated output
+build/
+dist/
+outputs/
+logs/
+.release-cache/
+.backups/
+.history-rebuild/
+.history-rebuild-git/
+.git-before-history/
+*.log
+tools/*.exe
+tools/*.pdb
+
+# Editor settings
+.vscode/
+.idea/
+*.code-workspace
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*~

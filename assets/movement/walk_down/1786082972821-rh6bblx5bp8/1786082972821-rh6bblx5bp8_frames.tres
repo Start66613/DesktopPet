@@ -1,0 +1,76 @@
+[gd_resource type="SpriteFrames" format=3]
+
+[ext_resource type="Texture2D" path="textures/1786082972821-rh6bblx5bp8_spritesheet.png" id="1_sheet"]
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0000"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(0, 0, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0001"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(256, 0, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0002"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(512, 0, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0003"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(0, 256, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0004"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(256, 256, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0005"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(512, 256, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0006"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(0, 512, 256, 256)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_0007"]
+atlas = ExtResource("1_sheet")
+filter_clip = true
+region = Rect2(256, 512, 256, 256)
+
+[resource]
+resource_name = "1786082972821-rh6bblx5bp8_frames"
+animations = [{
+"frames": [{
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0000")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0001")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0002")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0003")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0004")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0005")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0006")
+}, {
+"duration": 0.8,
+"texture": SubResource("AtlasTexture_0007")
+}],
+"loop": true,
+"name": &"向下走",
+"speed": 8.0
+}]
