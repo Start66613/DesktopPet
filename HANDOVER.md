@@ -172,6 +172,12 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 养成窗口从 `520x555` 再放大到约 `581x620`。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-011507`。
 
+## 2026-08-08 右键菜单内层色块修复
+
+- `assets/care/runtime/ui/context_menu_panel.png`：将清理原菜单内容时留下的偏亮矩形填充改为与原花边面板一致的自然底色，消除菜单内部可见的矩形边缘。
+- 保留菜单花边、顶部玫瑰、文字可读底色和原有点击区域；菜单交互逻辑未改动。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-012546`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。
