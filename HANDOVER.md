@@ -189,6 +189,13 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 调试启动聊天窗口：`godot --path "d:\game creat\DesktopPet" -- --show-chat-panel`。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-013246`。
 
+## 2026-08-08 聊天窗口切换与最小化修复
+
+- `scripts/pet.gd`：从右键菜单或养成窗口切换到聊天时，先隐藏当前菜单/养成窗口，再将聊天窗口置前，避免多个原生置顶窗口互相遮挡。
+- `scripts/ai_chat_panel.gd`：重新打开聊天前恢复 `Window.MODE_WINDOWED`；最小化使用聊天窗口自身的 `mode` 属性，修复最小化后再次打开仍停留在隐藏状态的问题。
+- 聊天 UI 底图已自带发送、最小化和关闭按钮，运行时改为只叠加透明点击热区，避免重复绘制造成按钮错位；设置按钮仍使用独立素材。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-021423`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。

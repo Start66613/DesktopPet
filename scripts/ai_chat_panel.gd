@@ -94,6 +94,7 @@ func _ready() -> void:
 
 func open_at(screen_position: Vector2i) -> void:
 	position = screen_position
+	mode = Window.MODE_WINDOWED
 	_prepare_open_animation()
 	show()
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
@@ -377,7 +378,7 @@ func _on_drag_handle_gui_input(event: InputEvent) -> void:
 
 
 func _minimize_window() -> void:
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_MINIMIZED, get_window_id())
+	mode = Window.MODE_MINIMIZED
 
 
 func _prepare_open_animation() -> void:
