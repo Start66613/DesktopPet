@@ -9,6 +9,7 @@ extends Node2D
 const SPRITES_DIR := "res://assets/sprites"
 const MOVEMENT_DIR := "res://assets/movement"
 const SPRITE_SCALE := 1.0
+const PET_VERTICAL_OFFSET := 12.0
 const DEFAULT_FPS := 8.0
 const SLEEP_ANIMATION := "sleep"
 const SLEEP_ENTER_ANIMATION := "sleep_enter"
@@ -17,13 +18,10 @@ const SLEEP_IDLE_FPS := 3.0
 const SLEEP_CHANCE := 0.28
 const SLEEP_MIN_DURATION := 12.0
 const SLEEP_MAX_DURATION := 22.0
-const DRAG_ANIMATION := "drag"
-const DRAG_ANIMATION_FPS := 8.0
-const DRAG_DISPLAY_SCALE := 1.5
-const DRAG_SHOULDER_OFFSET := Vector2(0, -30)
-const DRAG_SWAY_MAX := 0.12
-const DRAG_SWAY_RESPONSE := 12.0
-const DRAG_SWAY_DAMPING := 6.0
+const DRAG_CURSOR_ANCHOR_OFFSET := Vector2(0, -30)
+const DRAG_SWAY_MAX := 0.26
+const DRAG_SWAY_RESPONSE := 14.0
+const DRAG_SWAY_DAMPING := 3.5
 const ALPHA_THRESHOLD := 0.01  # alpha 低于此值视为透明
 const PASSTHROUGH_ROW_STEP := 3
 const PASSTHROUGH_MARGIN := 2
@@ -55,7 +53,6 @@ var _dragging := false
 var _did_drag := false
 var _drag_mouse_start := Vector2i.ZERO
 var _drag_last_mouse_position := Vector2i.ZERO
-var _drag_pose_ready := false
 var _drag_sway_target := 0.0
 
 # ---- 互动气泡 ----
@@ -96,7 +93,8 @@ func _ready() -> void:
 	sprite.scale = Vector2(SPRITE_SCALE, SPRITE_SCALE)
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	sprite.centered = true
-	sprite.position = Vector2(get_viewport().get_visible_rect().size) * 0.5
+	var viewport_size := get_viewport().get_visible_rect().size
+	sprite.position = Vector2(viewport_size.x * 0.5, viewport_size.y * 0.5 + PET_VERTICAL_OFFSET)
 	_create_bubble()
 	_create_context_menu()
 
@@ -365,8 +363,7 @@ func _compute_opaque_polygon(tex: Texture2D) -> PackedVector2Array:
 
 ## 纹理像素坐标 → 窗口坐标
 func _tex_to_window(px: float, py: float, tex_w: int, tex_h: int) -> Vector2:
-	var vp_size := get_viewport().get_visible_rect().size
-	var center := vp_size * 0.5
+	var center := sprite.position
 	var origin_x := center.x - (float(tex_w) * SPRITE_SCALE) / 2.0
 	var origin_y := center.y - (float(tex_h) * SPRITE_SCALE) / 2.0
 	return Vector2(origin_x + px * SPRITE_SCALE, origin_y + py * SPRITE_SCALE)
@@ -456,8 +453,8 @@ func _build_sprite_frames() -> SpriteFrames:
 		if frames.has_animation(action):
 			frames.remove_animation(action)
 		frames.add_animation(action)
-		frames.set_animation_loop(action, action != DRAG_ANIMATION)
-		frames.set_animation_speed(action, DRAG_ANIMATION_FPS if action == DRAG_ANIMATION else DEFAULT_FPS)
+		frames.set_animation_loop(action, true)
+		frames.set_animation_speed(action, DEFAULT_FPS)
 		for ff in files:
 			var tex := load(SPRITES_DIR + "/" + action + "/" + ff) as Texture2D
 			if tex:
@@ -663,25 +660,23 @@ func _play(anim: String) -> void:
 
 
 func _begin_drag_visual() -> void:
+	# 拖动不再切换专用姿势，保持原角色外观，仅通过旋转产生跟手感。
+	state = State.IDLE
+	_state_time = 0.0
+	_state_duration = 3.0
+	_play("idle")
 	if _bubble and _bubble.visible:
 		_bubble.clear_message()
 		_bubble_time_left = 0.0
 		_schedule_next_speech()
-	if state == State.SLEEP or state == State.WAKE:
-		_enter_state(State.IDLE)
-	_drag_pose_ready = false
 	_drag_sway_target = 0.0
 	_drag_last_mouse_position = DisplayServer.mouse_get_position()
 	sprite.rotation = 0.0
-	sprite.scale = Vector2(DRAG_DISPLAY_SCALE, DRAG_DISPLAY_SCALE)
-	_play(DRAG_ANIMATION)
-	sprite.frame = 0
-	sprite.frame_progress = 0.0
+	sprite.scale = Vector2(SPRITE_SCALE, SPRITE_SCALE)
 	_position_window_at_drag_anchor()
 
 
 func _finish_drag_visual() -> void:
-	_drag_pose_ready = false
 	_drag_sway_target = 0.0
 	sprite.rotation = 0.0
 	sprite.scale = Vector2(SPRITE_SCALE, SPRITE_SCALE)
@@ -690,11 +685,6 @@ func _finish_drag_visual() -> void:
 
 
 func _on_animation_finished() -> void:
-	if _dragging and sprite.animation == DRAG_ANIMATION:
-		sprite.frame = sprite.sprite_frames.get_frame_count(DRAG_ANIMATION) - 1
-		sprite.pause()
-		_drag_pose_ready = true
-		return
 	if state == State.SLEEP and sprite.animation == SLEEP_ENTER_ANIMATION:
 		if sprite.sprite_frames.has_animation(SLEEP_IDLE_ANIMATION):
 			_play(SLEEP_IDLE_ANIMATION)
@@ -705,17 +695,13 @@ func _on_animation_finished() -> void:
 
 
 func _update_drag_sway(delta: float) -> void:
-	if not _drag_pose_ready:
-		sprite.rotation = 0.0
-		_position_window_at_drag_anchor()
-		return
 	_drag_sway_target = lerpf(_drag_sway_target, 0.0, minf(delta * DRAG_SWAY_DAMPING, 1.0))
 	sprite.rotation = lerp_angle(sprite.rotation, _drag_sway_target, minf(delta * DRAG_SWAY_RESPONSE, 1.0))
 	_position_window_at_drag_anchor()
 
 
 func _position_window_at_drag_anchor() -> void:
-	var shoulder_offset := (DRAG_SHOULDER_OFFSET * DRAG_DISPLAY_SCALE).rotated(sprite.rotation)
+	var shoulder_offset := (DRAG_CURSOR_ANCHOR_OFFSET * sprite.scale.x).rotated(sprite.rotation)
 	var anchor_in_window := sprite.position + shoulder_offset
 	var mouse_position := DisplayServer.mouse_get_position()
 	var next_position := Vector2i((Vector2(mouse_position) - anchor_in_window).round())
@@ -770,8 +756,7 @@ func _input(event: InputEvent) -> void:
 				var mouse_position := DisplayServer.mouse_get_position()
 				var mouse_delta := mouse_position - _drag_last_mouse_position
 				_drag_last_mouse_position = mouse_position
-				if _drag_pose_ready:
-					_drag_sway_target = clampf(float(mouse_delta.x) * 0.008, -DRAG_SWAY_MAX, DRAG_SWAY_MAX)
+				_drag_sway_target = clampf(float(mouse_delta.x) * 0.016, -DRAG_SWAY_MAX, DRAG_SWAY_MAX)
 			_position_window_at_drag_anchor()
 
 
