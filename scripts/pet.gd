@@ -18,7 +18,13 @@ const SLEEP_MAX_DURATION := 22.0
 const DRAG_ANIMATION := "drag"
 const DRAG_ANIMATION_FPS := 8.0
 const DRAG_DISPLAY_SCALE := 1.5
+const DRAG_SHOULDER_OFFSET := Vector2(0, -30)
+const DRAG_SWAY_MAX := 0.12
+const DRAG_SWAY_RESPONSE := 12.0
+const DRAG_SWAY_DAMPING := 6.0
 const ALPHA_THRESHOLD := 0.01  # alpha 低于此值视为透明
+const PASSTHROUGH_ROW_STEP := 3
+const PASSTHROUGH_MARGIN := 2
 const WALK_SPEED := 95.0
 const DRAG_THRESHOLD := 8.0
 const MENU_TALK := 1
@@ -44,7 +50,9 @@ var _window_position := Vector2.ZERO
 var _dragging := false
 var _did_drag := false
 var _drag_mouse_start := Vector2i.ZERO
-var _drag_window_start := Vector2i.ZERO
+var _drag_last_mouse_position := Vector2i.ZERO
+var _drag_pose_ready := false
+var _drag_sway_target := 0.0
 
 # ---- 互动气泡 ----
 var _bubble
@@ -110,7 +118,10 @@ func _process(delta: float) -> void:
 	elif _speech_time_left <= 0.0:
 		_say_random()
 
-	if _dragging or (_context_menu and _context_menu.visible):
+	if _dragging:
+		_update_drag_sway(delta)
+		return
+	if _context_menu and _context_menu.visible:
 		return
 
 	_state_time += delta
@@ -248,8 +259,7 @@ func _precompute_passthrough_polygons() -> void:
 		_frame_polygons[anim_name] = polys
 
 
-## 从纹理中提取不透明区域的矩形包围盒
-## 返回窗口坐标系下的四边形多边形
+## 按行提取不透明像素的左右边界，生成贴近角色轮廓的穿透多边形。
 func _compute_opaque_polygon(tex: Texture2D) -> PackedVector2Array:
 	var img = tex.get_image()
 	if img == null:
@@ -257,38 +267,45 @@ func _compute_opaque_polygon(tex: Texture2D) -> PackedVector2Array:
 
 	var w := img.get_width()
 	var h := img.get_height()
-
-	var min_x := w
-	var max_x := -1
-	var min_y := h
-	var max_y := -1
+	var opaque_rows: Array[Vector3] = []
 
 	for y in range(h):
+		var left := -1
+		var right := -1
 		for x in range(w):
 			if img.get_pixel(x, y).a > ALPHA_THRESHOLD:
-				if x < min_x:
-					min_x = x
-				if x > max_x:
-					max_x = x
-				if y < min_y:
-					min_y = y
-				if y > max_y:
-					max_y = y
+				if left < 0:
+					left = x
+				right = x
+		if left >= 0:
+			opaque_rows.append(Vector3(y, left, right))
 
-	if max_x < 0:
+	if opaque_rows.is_empty():
 		return PackedVector2Array()  # 完全透明
 
-	# 扩展 2 像素，给缩放/抖动留点余量
-	min_x = maxi(min_x - 2, 0)
-	min_y = maxi(min_y - 2, 0)
-	max_x = mini(max_x + 2, w - 1)
-	max_y = mini(max_y + 2, h - 1)
+	var sampled_rows: Array[Vector3] = []
+	for row_index in range(0, opaque_rows.size(), PASSTHROUGH_ROW_STEP):
+		sampled_rows.append(opaque_rows[row_index])
+	if sampled_rows.back() != opaque_rows.back():
+		sampled_rows.append(opaque_rows.back())
 
 	var poly := PackedVector2Array()
-	poly.append(_tex_to_window(float(min_x), float(min_y), w, h))
-	poly.append(_tex_to_window(float(max_x + 1), float(min_y), w, h))
-	poly.append(_tex_to_window(float(max_x + 1), float(max_y + 1), w, h))
-	poly.append(_tex_to_window(float(min_x), float(max_y + 1), w, h))
+	for index in sampled_rows.size():
+		var row := sampled_rows[index]
+		var row_y := float(row.x)
+		if index == 0:
+			row_y = maxf(row_y - PASSTHROUGH_MARGIN, 0.0)
+		elif index == sampled_rows.size() - 1:
+			row_y = minf(row_y + 1.0 + PASSTHROUGH_MARGIN, float(h))
+		poly.append(_tex_to_window(maxf(float(row.y) - PASSTHROUGH_MARGIN, 0.0), row_y, w, h))
+	for index in range(sampled_rows.size() - 1, -1, -1):
+		var row := sampled_rows[index]
+		var row_y := float(row.x)
+		if index == 0:
+			row_y = maxf(row_y - PASSTHROUGH_MARGIN, 0.0)
+		elif index == sampled_rows.size() - 1:
+			row_y = minf(row_y + 1.0 + PASSTHROUGH_MARGIN, float(h))
+		poly.append(_tex_to_window(minf(float(row.z) + 1.0 + PASSTHROUGH_MARGIN, float(w)), row_y, w, h))
 	return poly
 
 
@@ -303,9 +320,6 @@ func _tex_to_window(px: float, py: float, tex_w: int, tex_h: int) -> Vector2:
 
 ## 更新当前帧的穿透多边形到系统窗口
 func _update_passthrough() -> void:
-	if _bubble and _bubble.visible:
-		DisplayServer.window_set_mouse_passthrough(PackedVector2Array())
-		return
 	if _dragging or (_context_menu and _context_menu.visible):
 		return  # 拖动或菜单显示时保持全窗口可接收事件
 
@@ -319,9 +333,32 @@ func _update_passthrough() -> void:
 	var frame := sprite.frame
 	if frame >= 0 and frame < polys.size():
 		var poly: PackedVector2Array = polys[frame]
+		if _bubble and _bubble.visible:
+			poly = _merge_bubble_polygon(poly)
 		DisplayServer.window_set_mouse_passthrough(poly)
 	else:
 		DisplayServer.window_set_mouse_passthrough(PackedVector2Array())
+
+
+func _merge_bubble_polygon(character_poly: PackedVector2Array) -> PackedVector2Array:
+	var origin: Vector2 = _bubble.position
+	var bubble_poly := PackedVector2Array([
+		origin + Vector2(0, 0),
+		origin + Vector2(0, 64),
+		origin + Vector2(145, 64),
+		origin + Vector2(153, 82),
+		origin + Vector2(161, 64),
+		origin + Vector2(230, 64),
+		origin + Vector2(230, 0)
+	])
+	var merged := Geometry2D.merge_polygons(character_poly, bubble_poly)
+	if merged.size() == 1:
+		return merged[0]
+
+	# 正常布局下气泡和角色头部会相交；若某帧没有相交，则用最小凸包保证两者都显示。
+	var all_points := PackedVector2Array(character_poly)
+	all_points.append_array(bubble_poly)
+	return Geometry2D.convex_hull(all_points)
 
 
 func _on_frame_changed() -> void:
@@ -368,7 +405,7 @@ func _build_sprite_frames() -> SpriteFrames:
 		if frames.has_animation(action):
 			frames.remove_animation(action)
 		frames.add_animation(action)
-		frames.set_animation_loop(action, true)
+		frames.set_animation_loop(action, action != DRAG_ANIMATION)
 		frames.set_animation_speed(action, DRAG_ANIMATION_FPS if action == DRAG_ANIMATION else DEFAULT_FPS)
 		for ff in files:
 			var tex := load(SPRITES_DIR + "/" + action + "/" + ff) as Texture2D
@@ -579,21 +616,55 @@ func _begin_drag_visual() -> void:
 		_schedule_next_speech()
 	if state == State.SLEEP or state == State.WAKE:
 		_enter_state(State.IDLE)
+	_drag_pose_ready = false
+	_drag_sway_target = 0.0
+	_drag_last_mouse_position = DisplayServer.mouse_get_position()
+	sprite.rotation = 0.0
 	sprite.scale = Vector2(DRAG_DISPLAY_SCALE, DRAG_DISPLAY_SCALE)
 	_play(DRAG_ANIMATION)
+	sprite.frame = 0
+	sprite.frame_progress = 0.0
+	_position_window_at_drag_anchor()
 
 
 func _finish_drag_visual() -> void:
+	_drag_pose_ready = false
+	_drag_sway_target = 0.0
+	sprite.rotation = 0.0
 	sprite.scale = Vector2(SPRITE_SCALE, SPRITE_SCALE)
 	_enter_state(State.IDLE)
 	_state_duration = 3.0
 
 
 func _on_animation_finished() -> void:
+	if _dragging and sprite.animation == DRAG_ANIMATION:
+		sprite.frame = sprite.sprite_frames.get_frame_count(DRAG_ANIMATION) - 1
+		sprite.pause()
+		_drag_pose_ready = true
+		return
 	if state == State.SLEEP and sprite.animation == SLEEP_ENTER_ANIMATION:
 		_play(SLEEP_ANIMATION)
 	elif state == State.WAKE and sprite.animation == SLEEP_ENTER_ANIMATION:
 		_enter_state(State.IDLE)
+
+
+func _update_drag_sway(delta: float) -> void:
+	if not _drag_pose_ready:
+		sprite.rotation = 0.0
+		_position_window_at_drag_anchor()
+		return
+	_drag_sway_target = lerpf(_drag_sway_target, 0.0, minf(delta * DRAG_SWAY_DAMPING, 1.0))
+	sprite.rotation = lerp_angle(sprite.rotation, _drag_sway_target, minf(delta * DRAG_SWAY_RESPONSE, 1.0))
+	_position_window_at_drag_anchor()
+
+
+func _position_window_at_drag_anchor() -> void:
+	var shoulder_offset := (DRAG_SHOULDER_OFFSET * DRAG_DISPLAY_SCALE).rotated(sprite.rotation)
+	var anchor_in_window := sprite.position + shoulder_offset
+	var mouse_position := DisplayServer.mouse_get_position()
+	var next_position := Vector2i((Vector2(mouse_position) - anchor_in_window).round())
+	_window_position = Vector2(next_position)
+	DisplayServer.window_set_position(next_position)
 
 
 # =====================================================================
@@ -623,7 +694,6 @@ func _input(event: InputEvent) -> void:
 			# 拖动时禁用穿透（空多边形=不穿透），确保鼠标移到透明区也能持续拖动
 			DisplayServer.window_set_mouse_passthrough(PackedVector2Array())
 			_drag_mouse_start = DisplayServer.mouse_get_position()
-			_drag_window_start = DisplayServer.window_get_position()
 		else:
 			var was_click := not _did_drag
 			_dragging = false
@@ -640,9 +710,13 @@ func _input(event: InputEvent) -> void:
 			if not _did_drag:
 				_did_drag = true
 				_begin_drag_visual()
-			var dragged_position := _drag_window_start + delta
-			_window_position = Vector2(dragged_position)
-			DisplayServer.window_set_position(dragged_position)
+			else:
+				var mouse_position := DisplayServer.mouse_get_position()
+				var mouse_delta := mouse_position - _drag_last_mouse_position
+				_drag_last_mouse_position = mouse_position
+				if _drag_pose_ready:
+					_drag_sway_target = clampf(float(mouse_delta.x) * 0.008, -DRAG_SWAY_MAX, DRAG_SWAY_MAX)
+			_position_window_at_drag_anchor()
 
 
 func _on_pet_clicked() -> void:
