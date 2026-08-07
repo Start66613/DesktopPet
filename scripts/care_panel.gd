@@ -1,7 +1,9 @@
 extends Window
 class_name PetCarePanel
 
-const PANEL_SIZE := Vector2i(440, 470)
+const BASE_PANEL_SIZE := Vector2i(440, 470)
+const UI_SCALE := 1.18
+const PANEL_SIZE := Vector2i(520, 555)
 const CARE_UI_DIR := "res://assets/care/runtime/ui"
 const MirrorPreview := preload("res://scripts/mirror_preview.gd")
 const StatBar := preload("res://scripts/care_stat_bar.gd")
@@ -33,6 +35,7 @@ const PICKER_TITLES := {
 
 var _care_system: PetCareSystem
 var _font: Font
+var _root: Control
 var _portrait
 var _stat_bars: Dictionary = {}
 var _stat_labels: Dictionary = {}
@@ -42,6 +45,9 @@ var _picker_grid: GridContainer
 var _toast: PanelContainer
 var _toast_label: Label
 var _toast_tween: Tween
+var _panel_tween: Tween
+var _picker_tween: Tween
+var _button_tweens: Dictionary = {}
 
 
 func _init() -> void:
@@ -75,9 +81,11 @@ func open_at(screen_position: Vector2i, portrait_texture: Texture2D) -> void:
 	if portrait_texture:
 		_portrait.set_fallback_texture(portrait_texture)
 	_picker_overlay.visible = false
+	_prepare_open_animation()
 	show()
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
 	grab_focus()
+	_play_open_animation()
 
 
 func hide_panel() -> void:
@@ -87,7 +95,10 @@ func hide_panel() -> void:
 
 func _build_ui() -> void:
 	var root := Control.new()
-	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_root = root
+	root.size = Vector2(BASE_PANEL_SIZE)
+	root.pivot_offset = Vector2.ZERO
+	root.scale = Vector2.ONE * UI_SCALE
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(root)
 
@@ -111,6 +122,7 @@ func _build_ui() -> void:
 	close_button.tooltip_text = "关闭"
 	close_button.pressed.connect(hide_panel)
 	root.add_child(close_button)
+	_bind_button_motion(close_button, 1.08, 2.0)
 
 	for index in ACTION_LAYOUT.size():
 		_create_action_button(root, index, ACTION_LAYOUT[index])
@@ -147,6 +159,7 @@ func _create_action_button(root: Control, index: int, action: Dictionary) -> voi
 	button.tooltip_text = action["tip"]
 	button.pressed.connect(_on_action_pressed.bind(action["key"]))
 	root.add_child(button)
+	_bind_button_motion(button, 1.11, 4.0)
 
 	var label := Label.new()
 	label.position = Vector2(x - 4.0, 439)
@@ -182,6 +195,47 @@ func _on_window_drag_handle_gui_input(event: InputEvent) -> void:
 		DisplayServer.window_start_drag(get_window_id())
 
 
+func _prepare_open_animation() -> void:
+	if _panel_tween and _panel_tween.is_valid():
+		_panel_tween.kill()
+	_root.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	_root.scale = Vector2.ONE * (UI_SCALE * 0.965)
+
+
+func _play_open_animation() -> void:
+	_panel_tween = create_tween()
+	_panel_tween.set_parallel(true)
+	_panel_tween.tween_property(_root, "modulate", Color.WHITE, 0.18)
+	_panel_tween.tween_property(_root, "scale", Vector2.ONE * UI_SCALE, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+func _bind_button_motion(button: Control, hover_scale: float, angle_degrees: float) -> void:
+	button.pivot_offset = button.size * 0.5
+	button.resized.connect(func() -> void: button.pivot_offset = button.size * 0.5)
+	button.mouse_entered.connect(_animate_button_motion.bind(button, true, hover_scale, angle_degrees))
+	button.mouse_exited.connect(_animate_button_motion.bind(button, false, hover_scale, angle_degrees))
+
+
+func _animate_button_motion(button: Control, hovered: bool, hover_scale: float, angle_degrees: float) -> void:
+	var button_id := button.get_instance_id()
+	var previous: Tween = _button_tweens.get(button_id)
+	if previous and previous.is_valid():
+		previous.kill()
+	var tween := create_tween()
+	_button_tweens[button_id] = tween
+	if hovered:
+		tween.set_parallel(true)
+		tween.tween_property(button, "scale", Vector2.ONE * hover_scale, 0.14).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tween.tween_property(button, "rotation", deg_to_rad(angle_degrees), 0.09).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tween.set_parallel(false)
+		tween.tween_property(button, "rotation", deg_to_rad(-angle_degrees * 0.55), 0.09)
+		tween.tween_property(button, "rotation", 0.0, 0.08)
+	else:
+		tween.set_parallel(true)
+		tween.tween_property(button, "scale", Vector2.ONE, 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		tween.tween_property(button, "rotation", 0.0, 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
 func _build_picker(root: Control) -> void:
 	_picker_overlay = Control.new()
 	_picker_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -190,22 +244,17 @@ func _build_picker(root: Control) -> void:
 	_picker_overlay.visible = false
 	root.add_child(_picker_overlay)
 
-	var dimmer := ColorRect.new()
-	dimmer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	dimmer.color = Color(0.28, 0.16, 0.20, 0.22)
-	dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
-	_picker_overlay.add_child(dimmer)
-
 	var picker_background := _make_texture_rect(CARE_UI_DIR + "/item_picker.png", Vector2(25, 111), Vector2(390, 264))
 	picker_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_picker_overlay.add_child(picker_background)
 
 	_picker_title = Label.new()
-	_picker_title.position = Vector2(80, 143)
-	_picker_title.size = Vector2(280, 30)
+	_picker_title.position = Vector2(95, 169)
+	_picker_title.size = Vector2(250, 19)
 	_picker_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_picker_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_picker_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_picker_title.add_theme_font_size_override("font_size", 18)
+	_picker_title.add_theme_font_size_override("font_size", 15)
 	_picker_title.add_theme_color_override("font_color", Color("684551"))
 	if _font:
 		_picker_title.add_theme_font_override("font", _font)
@@ -225,7 +274,7 @@ func _build_picker(root: Control) -> void:
 	close_picker.flat = true
 	close_picker.focus_mode = Control.FOCUS_NONE
 	close_picker.tooltip_text = "返回"
-	close_picker.pressed.connect(func() -> void: _picker_overlay.visible = false)
+	close_picker.pressed.connect(_hide_picker)
 	_picker_overlay.add_child(close_picker)
 	_create_window_drag_handle(_picker_overlay, Vector2(72, 119), Vector2(278, 55))
 
@@ -291,6 +340,7 @@ func _open_picker(category: String) -> void:
 		button.tooltip_text = item["name"]
 		button.pressed.connect(_on_item_selected.bind(category, index))
 		cell.add_child(button)
+		_bind_button_motion(button, 1.12, 3.0)
 
 		var label := Label.new()
 		label.custom_minimum_size = Vector2(66, 17)
@@ -305,7 +355,38 @@ func _open_picker(category: String) -> void:
 		if _font:
 			label.add_theme_font_override("font", _font)
 		cell.add_child(label)
+
+		cell.pivot_offset = cell.custom_minimum_size * 0.5
+		cell.modulate.a = 0.0
+		cell.scale = Vector2.ONE * 0.92
+		var item_tween := create_tween()
+		item_tween.tween_interval(float(index) * 0.035)
+		item_tween.set_parallel(true)
+		item_tween.tween_property(cell, "modulate:a", 1.0, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		item_tween.tween_property(cell, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_show_picker()
+
+
+func _show_picker() -> void:
+	if _picker_tween and _picker_tween.is_valid():
+		_picker_tween.kill()
+	_picker_overlay.modulate = Color(1.0, 1.0, 1.0, 0.0)
 	_picker_overlay.visible = true
+	_picker_tween = create_tween()
+	_picker_tween.tween_property(_picker_overlay, "modulate", Color.WHITE, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+func _hide_picker() -> void:
+	if not _picker_overlay.visible:
+		return
+	if _picker_tween and _picker_tween.is_valid():
+		_picker_tween.kill()
+	_picker_tween = create_tween()
+	_picker_tween.tween_property(_picker_overlay, "modulate:a", 0.0, 0.12)
+	_picker_tween.tween_callback(func() -> void:
+		_picker_overlay.visible = false
+		_picker_overlay.modulate = Color.WHITE
+	)
 
 
 func _on_item_selected(category: String, index: int) -> void:

@@ -1,15 +1,19 @@
 extends Control
 class_name PetCareStatBar
 
-var _value := 0.0
+var _display_value := 0.0
+var _target_value := 0.0
 var _fill_color := Color.WHITE
 var _track_style: StyleBoxFlat
 var _fill_style: StyleBoxFlat
+var _value_tween: Tween
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	resized.connect(queue_redraw)
+	if not is_equal_approx(_display_value, _target_value):
+		call_deferred("_animate_to_target")
 
 
 func configure(fill_color: Color) -> void:
@@ -26,7 +30,22 @@ func configure(fill_color: Color) -> void:
 
 
 func set_value(next_value: float) -> void:
-	_value = clampf(next_value, 0.0, 100.0)
+	_target_value = clampf(next_value, 0.0, 100.0)
+	if is_node_ready():
+		_animate_to_target()
+
+
+func _animate_to_target() -> void:
+	if _value_tween and _value_tween.is_valid():
+		_value_tween.kill()
+	_value_tween = create_tween()
+	_value_tween.set_trans(Tween.TRANS_QUAD)
+	_value_tween.set_ease(Tween.EASE_OUT)
+	_value_tween.tween_method(_set_display_value, _display_value, _target_value, 0.42)
+
+
+func _set_display_value(next_value: float) -> void:
+	_display_value = next_value
 	queue_redraw()
 
 
@@ -35,10 +54,10 @@ func _draw() -> void:
 		return
 	var track_rect := Rect2(Vector2.ZERO, size)
 	draw_style_box(_track_style, track_rect)
-	if _value <= 0.0:
+	if _display_value <= 0.0:
 		return
 	var inner_rect := Rect2(Vector2.ONE, size - Vector2(2.0, 2.0))
-	var fill_width := inner_rect.size.x * (_value / 100.0)
+	var fill_width := inner_rect.size.x * (_display_value / 100.0)
 	fill_width = maxf(fill_width, minf(inner_rect.size.y, inner_rect.size.x))
 	var fill_rect := Rect2(inner_rect.position, Vector2(fill_width, inner_rect.size.y))
 	draw_style_box(_fill_style, fill_rect)

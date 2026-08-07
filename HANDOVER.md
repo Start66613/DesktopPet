@@ -151,6 +151,14 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `assets/care/runtime/ui/action_strip.png`：由旧 UI 包的 `36_spritesheet.png` 本地整理而成，保留双层边框与四角花饰，移除不匹配的十二格占位；未调用 Meowa，不消耗额度。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-003957`。
 
+## 2026-08-08 养成界面尺寸与动效
+
+- 养成窗口从 `440x470` 放大到 `520x555`，内部使用统一 `1.18` 倍设计缩放，布局比例、字体和点击区域同步增大。
+- 移除物品选择器覆盖全窗口的半透明粉色遮罩，解决透明区域出现粉色矩形边的问题。
+- 物品选择器标题下移到蝴蝶结下方，并缩为紧凑单行，避免文字压住装饰。
+- 面板打开时淡入并轻微弹出；主操作按钮、关闭按钮和物品按钮支持悬停放大与轻摆；物品按顺序淡入；状态条通过 Tween 平滑滑动到新数值。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-005210`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。
