@@ -4,6 +4,7 @@ class_name PetCarePanel
 const PANEL_SIZE := Vector2i(440, 470)
 const CARE_UI_DIR := "res://assets/care/runtime/ui"
 const MirrorPreview := preload("res://scripts/mirror_preview.gd")
+const StatBar := preload("res://scripts/care_stat_bar.gd")
 
 const STAT_LAYOUT := [
 	{"key": "fullness", "label": "饱腹", "y": 94.0, "color": Color("ef9b9c")},
@@ -93,14 +94,14 @@ func _build_ui() -> void:
 	var action_background := _make_action_background()
 	root.add_child(action_background)
 
+	_portrait = MirrorPreview.new()
+	_portrait.position = Vector2(35, 84)
+	_portrait.size = Vector2(170, 180)
+	root.add_child(_portrait)
+
 	var background := _make_texture_rect(CARE_UI_DIR + "/care_panel.png", Vector2(20, 4), Vector2(400, 382))
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(background)
-
-	_portrait = MirrorPreview.new()
-	_portrait.position = Vector2(42, 88)
-	_portrait.size = Vector2(148, 148)
-	root.add_child(_portrait)
 
 	for stat in STAT_LAYOUT:
 		_create_stat_row(root, stat)
@@ -122,8 +123,8 @@ func _create_stat_row(root: Control, stat: Dictionary) -> void:
 	var key: String = stat["key"]
 	var y: float = stat["y"]
 	var label := Label.new()
-	label.position = Vector2(243, y)
-	label.size = Vector2(130, 18)
+	label.position = Vector2(248, y)
+	label.size = Vector2(137, 18)
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label.add_theme_font_size_override("font_size", 13)
 	label.add_theme_color_override("font_color", Color("654750"))
@@ -132,23 +133,10 @@ func _create_stat_row(root: Control, stat: Dictionary) -> void:
 	root.add_child(label)
 	_stat_labels[key] = label
 
-	var bar := ProgressBar.new()
-	bar.position = Vector2(243, y + 19.0)
-	bar.size = Vector2(124, 8)
-	bar.min_value = 0.0
-	bar.max_value = 100.0
-	bar.show_percentage = false
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var background_style := StyleBoxFlat.new()
-	background_style.bg_color = Color(1.0, 0.97, 0.96, 0.88)
-	background_style.border_color = Color("e5c1c1")
-	background_style.set_border_width_all(1)
-	background_style.set_corner_radius_all(4)
-	var fill_style := StyleBoxFlat.new()
-	fill_style.bg_color = stat["color"]
-	fill_style.set_corner_radius_all(4)
-	bar.add_theme_stylebox_override("background", background_style)
-	bar.add_theme_stylebox_override("fill", fill_style)
+	var bar = StatBar.new()
+	bar.position = Vector2(248, y + 20.0)
+	bar.size = Vector2(137, 10)
+	bar.configure(stat["color"])
 	root.add_child(bar)
 	_stat_bars[key] = bar
 
@@ -173,20 +161,9 @@ func _create_action_button(root: Control, index: int, action: Dictionary) -> voi
 	root.add_child(label)
 
 
-func _make_action_background() -> Panel:
-	var background := Panel.new()
-	background.position = Vector2(20, 363)
-	background.size = Vector2(400, 107)
+func _make_action_background() -> TextureRect:
+	var background := _make_texture_rect(CARE_UI_DIR + "/action_strip.png", Vector2(20, 363), Vector2(400, 107))
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("fff4f6")
-	style.border_color = Color("eac1c9")
-	style.set_border_width_all(2)
-	style.set_corner_radius_all(16)
-	style.shadow_color = Color(0.34, 0.15, 0.20, 0.18)
-	style.shadow_size = 4
-	style.shadow_offset = Vector2(0, 2)
-	background.add_theme_stylebox_override("panel", style)
 	return background
 
 
@@ -344,7 +321,7 @@ func _refresh_stats(stats: Dictionary) -> void:
 	for stat in STAT_LAYOUT:
 		var key: String = stat["key"]
 		var value := clampf(float(stats.get(key, 0.0)), 0.0, 100.0)
-		(_stat_bars[key] as ProgressBar).value = value
+		_stat_bars[key].set_value(value)
 		var suffix := ""
 		if key == "affection":
 			suffix = "  Lv.%d" % mini(int(value / 20.0) + 1, 5)

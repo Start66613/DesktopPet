@@ -55,23 +55,4 @@ func _layout_sprite() -> void:
 
 
 func _draw() -> void:
-	var center := size * 0.5
-	var radius_x := maxf(size.x * 0.5 - 4.0, 1.0)
-	var radius_y := maxf(size.y * 0.5 - 3.0, 1.0)
-	var edge_points := PackedVector2Array()
-	for index in range(40):
-		var angle := TAU * float(index) / 40.0
-		edge_points.append(center + Vector2(cos(angle) * radius_x, sin(angle) * radius_y))
-	draw_colored_polygon(edge_points, Color("fff7fa"))
-
-	var outline := PackedVector2Array(edge_points)
-	outline.append(edge_points[0])
-	draw_polyline(outline, Color("eeb7c2"), 1.0, true)
-
-	for y_offset in [-35.0, -19.0, -3.0, 13.0, 29.0]:
-		var offset: float = y_offset
-		var normalized: float = offset / radius_y
-		var half_width: float = sqrt(maxf(0.0, 1.0 - normalized * normalized)) * radius_x
-		var start := center + Vector2(-half_width + 9.0, offset)
-		var end := center + Vector2(half_width - 9.0, offset)
-		draw_line(start, end, Color("f4d8df"), 1.0, true)
+	draw_rect(Rect2(Vector2.ZERO, size), Color("fdf1ec"))

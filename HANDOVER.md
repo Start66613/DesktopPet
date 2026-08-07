@@ -144,6 +144,13 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `scripts/mirror_preview.gd`：镜面镂空处改为有柔和底色与细线反光的镜子，并循环播放 `assets/sprites/idle/idle_01.png` 至 `idle_08.png` 的待机动画。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-001342`。
 
+## 2026-08-08 养成面板视觉校准
+
+- 镜面预览改为比透明孔更大的矩形底层，使用与主面板一致的暖白底色；`care_panel.png` 后绘制并自然遮住矩形边缘，不再手工拟合椭圆。
+- `scripts/care_stat_bar.gd`：替代受 Godot 主题最小尺寸影响的 `ProgressBar`，动态条固定为 `137x10`，并在底图虚线框内保留一致边距。
+- `assets/care/runtime/ui/action_strip.png`：由旧 UI 包的 `36_spritesheet.png` 本地整理而成，保留双层边框与四角花饰，移除不匹配的十二格占位；未调用 Meowa，不消耗额度。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-003957`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。
