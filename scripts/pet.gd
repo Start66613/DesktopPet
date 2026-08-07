@@ -315,13 +315,16 @@ func _create_context_menu() -> void:
 
 
 func _style_context_menu() -> void:
-	var panel := StyleBoxFlat.new()
-	panel.bg_color = Color("fff8f4")
-	panel.border_color = Color("d89aa3")
-	panel.set_border_width_all(2)
-	panel.set_corner_radius_all(14)
-	panel.shadow_color = Color(0.18, 0.10, 0.14, 0.28)
-	panel.shadow_size = 7
+	var panel := StyleBoxTexture.new()
+	panel.texture = load(CARE_UI_DIR + "/context_menu_panel.png") as Texture2D
+	panel.texture_margin_left = 24.0
+	panel.texture_margin_top = 74.0
+	panel.texture_margin_right = 24.0
+	panel.texture_margin_bottom = 28.0
+	panel.content_margin_left = 24.0
+	panel.content_margin_top = 76.0
+	panel.content_margin_right = 24.0
+	panel.content_margin_bottom = 24.0
 	var hover := StyleBoxFlat.new()
 	hover.bg_color = Color("f9c7d0")
 	hover.border_color = Color("e7a2ad")
@@ -373,10 +376,9 @@ func _open_context_menu() -> void:
 	var usable := DisplayServer.screen_get_usable_rect(screen)
 	var content_size := _context_menu.get_contents_minimum_size()
 	var menu_size := Vector2i(maxi(roundi(content_size.x), 224), maxi(roundi(content_size.y), 190))
-	var pet_position := DisplayServer.window_get_position()
-	var pet_size := DisplayServer.window_get_size()
-	var right_position := Vector2i(pet_position.x + pet_size.x + 8, mouse_position.y - menu_size.y / 3)
-	var left_position := Vector2i(pet_position.x - menu_size.x - 8, mouse_position.y - menu_size.y / 3)
+	var character_bounds := _get_character_screen_bounds()
+	var right_position := Vector2i(roundi(character_bounds.end.x + 6.0), mouse_position.y - menu_size.y / 3)
+	var left_position := Vector2i(roundi(character_bounds.position.x - menu_size.x - 6.0), mouse_position.y - menu_size.y / 3)
 	var popup_position := right_position
 	if popup_position.x + menu_size.x > usable.end.x:
 		popup_position = left_position
@@ -386,6 +388,21 @@ func _open_context_menu() -> void:
 	_context_menu.position = popup_position
 	_context_menu.popup()
 	DisplayServer.window_set_position(popup_position, _context_menu.get_window_id())
+
+
+func _get_character_screen_bounds() -> Rect2:
+	var fallback := Rect2(sprite.position - Vector2(128.0, 128.0) * SPRITE_SCALE, Vector2(256.0, 256.0) * SPRITE_SCALE)
+	var anim := sprite.animation
+	if not _frame_polygons.has(anim):
+		return Rect2(Vector2(DisplayServer.window_get_position()) + fallback.position, fallback.size)
+	var polygons: Array = _frame_polygons[anim]
+	var frame := sprite.frame
+	if frame < 0 or frame >= polygons.size() or polygons[frame].is_empty():
+		return Rect2(Vector2(DisplayServer.window_get_position()) + fallback.position, fallback.size)
+	var local_bounds := Rect2(polygons[frame][0], Vector2.ZERO)
+	for point in polygons[frame]:
+		local_bounds = local_bounds.expand(point)
+	return Rect2(Vector2(DisplayServer.window_get_position()) + local_bounds.position, local_bounds.size)
 
 
 func _on_context_menu_id_pressed(id: int) -> void:

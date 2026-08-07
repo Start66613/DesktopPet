@@ -165,6 +165,13 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 菜单默认显示在桌宠右侧，靠近屏幕边缘时自动切换到左侧，并按当前屏幕工作区限制上下位置。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-010638`。
 
+## 2026-08-08 右键菜单视觉与窗口尺寸
+
+- `scripts/pet.gd`：右键菜单改为贴当前动画帧的不透明模型边界，视觉间距约 `6px`；不再按透明窗口边缘计算距离。
+- `assets/care/runtime/ui/context_menu_panel.png`：由 UI 包 `main_ui/14_spritesheet.png` 整理出干净的竖向花边菜单底板，保留顶部玫瑰、外框和虚线边，移除原设置菜单内容。
+- 养成窗口从 `520x555` 再放大到约 `581x620`。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-011507`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。
