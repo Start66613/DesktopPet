@@ -37,10 +37,15 @@ const MENU_TALK := 1
 const MENU_TOGGLE_WANDER := 2
 const MENU_CENTER := 3
 const MENU_SLEEP := 4
+const MENU_CARE := 5
 const MENU_EXIT := 99
 const UI_TEXTURE_DIR := "res://assets/ui_source/generated/1-animations/textures"
+const CARE_UI_DIR := "res://assets/care/runtime/ui"
 const PET_FONT_PATH := "res://assets/fonts/ZCOOLKuaiLe-Regular.ttf"
 const SpeechBubble := preload("res://scripts/speech_bubble.gd")
+const CareSystem := preload("res://scripts/care_system.gd")
+const CarePanel := preload("res://scripts/care_panel.gd")
+const CareFeedback := preload("res://scripts/care_feedback.gd")
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 
@@ -84,6 +89,18 @@ var _bubble_lines := [
 var _cjk_font: Font
 var _emoji_font: Font
 
+# ---- 养成系统 ----
+var _care_system: PetCareSystem
+var _care_panel: PetCarePanel
+var _care_feedback: PetCareFeedback
+var _comfort_cooldown := 0.0
+var _need_lines := {
+	"fullness": {"text": "肚子在小声提醒我啦……可以一起吃点东西吗？", "emoji": "🍰"},
+	"hydration": {"text": "有一点口渴，想喝杯甜甜的饮料。", "emoji": "💧"},
+	"mood": {"text": "陪我玩一会儿嘛，我想和你待在一起。", "emoji": "🎮"},
+	"energy": {"text": "眼睛有点睁不开啦……让我靠一会儿。", "emoji": "💤"}
+}
+
 # ---- 右键菜单 ----
 var _context_menu: PopupMenu
 
@@ -95,6 +112,7 @@ var _frame_polygons: Dictionary = {}
 func _ready() -> void:
 	_rng.randomize()
 	_window_position = Vector2(DisplayServer.window_get_position())
+	get_viewport().gui_embed_subwindows = false
 
 	# 让主视口背景真正透明（仅靠项目设置不够）
 	get_viewport().transparent_bg = true
@@ -107,6 +125,7 @@ func _ready() -> void:
 	var viewport_size := get_viewport().get_visible_rect().size
 	sprite.position = Vector2(viewport_size.x * 0.5, viewport_size.y * 0.5 + PET_VERTICAL_OFFSET)
 	_create_bubble()
+	_create_care_features()
 	_create_context_menu()
 
 	# 预计算每帧的点击穿透多边形
@@ -121,9 +140,12 @@ func _ready() -> void:
 	_update_passthrough()
 	_schedule_next_speech()
 	call_deferred("_show_bubble", "你好呀，我会陪着你 (^_^)", 4.0, "✨")
+	if OS.get_cmdline_user_args().has("--show-care-panel"):
+		call_deferred("_open_care_panel")
 
 
 func _process(delta: float) -> void:
+	_comfort_cooldown = maxf(_comfort_cooldown - delta, 0.0)
 	if state != State.SLEEP:
 		_speech_time_left -= delta
 		if _bubble_time_left > 0.0:
@@ -168,7 +190,7 @@ func _create_bubble() -> void:
 
 	_bubble = SpeechBubble.new()
 	_bubble.name = "SpeechBubble"
-	_bubble.position = Vector2(50, 0)
+	_bubble.position = Vector2(50, 1)
 	_bubble.z_index = 100
 	_cjk_font = _load_system_font(PET_FONT_PATH)
 	_emoji_font = _load_system_font("C:/Windows/Fonts/seguiemj.ttf")
@@ -184,6 +206,64 @@ func _load_system_font(path: String) -> Font:
 	return font
 
 
+func _create_care_features() -> void:
+	_care_system = CareSystem.new()
+	_care_system.name = "CareSystem"
+	_care_system.action_performed.connect(_on_care_action_performed)
+	add_child(_care_system)
+
+	_care_feedback = CareFeedback.new()
+	_care_feedback.name = "CareFeedback"
+	_care_feedback.configure_font(_cjk_font)
+	_care_feedback.bounds_changed.connect(_update_passthrough)
+	add_child(_care_feedback)
+
+	_care_panel = CarePanel.new()
+	_care_panel.name = "CarePanel"
+	_care_panel.configure(_care_system, _cjk_font)
+	add_child(_care_panel)
+
+
+func _on_care_action_performed(result: Dictionary) -> void:
+	if bool(result.get("request_sleep", false)):
+		_enter_state(State.SLEEP)
+		return
+
+	if state == State.SLEEP:
+		_enter_state(State.WAKE)
+	elif state != State.WAKE:
+		_enter_state(State.IDLE)
+		_state_duration = 5.5
+
+	var message: String = result.get("message", "")
+	var emoji: String = result.get("emoji", "")
+	if not message.is_empty():
+		_show_bubble(message, 3.6, emoji)
+	if bool(result.get("success", false)) and _care_feedback:
+		_care_feedback.show_feedback(result.get("effect", "sparkle"), result.get("feedback", ""))
+
+
+func _open_care_panel() -> void:
+	if not _care_panel:
+		return
+	var screen := DisplayServer.window_get_current_screen()
+	if screen < 0:
+		screen = 0
+	var usable := DisplayServer.screen_get_usable_rect(screen)
+	var pet_position := DisplayServer.window_get_position()
+	var pet_size := DisplayServer.window_get_size()
+	var panel_size := _care_panel.size
+	var panel_x := pet_position.x + pet_size.x + 10
+	if panel_x + panel_size.x > usable.end.x:
+		panel_x = pet_position.x - panel_size.x - 10
+	panel_x = clampi(panel_x, usable.position.x, usable.end.x - panel_size.x)
+	var panel_y := clampi(pet_position.y - 70, usable.position.y, usable.end.y - panel_size.y)
+	var portrait: Texture2D
+	if sprite.sprite_frames and sprite.frame >= 0 and sprite.frame < sprite.sprite_frames.get_frame_count(sprite.animation):
+		portrait = sprite.sprite_frames.get_frame_texture(sprite.animation, sprite.frame)
+	_care_panel.open_at(Vector2i(panel_x, panel_y), portrait)
+
+
 func _show_bubble(message: String, duration := 2.8, emoji := "") -> void:
 	if state == State.SLEEP:
 		return
@@ -194,6 +274,12 @@ func _show_bubble(message: String, duration := 2.8, emoji := "") -> void:
 
 
 func _say_random(duration := 3.0) -> void:
+	if _care_system and _rng.randf() < 0.7:
+		var need := _care_system.get_lowest_need()
+		if float(need["value"]) < 28.0 and _need_lines.has(need["key"]):
+			var need_line: Dictionary = _need_lines[need["key"]]
+			_show_bubble(need_line["text"], duration + 0.6, need_line["emoji"])
+			return
 	var line: Dictionary = _bubble_lines[_rng.randi_range(0, _bubble_lines.size() - 1)]
 	_show_bubble(line["text"], duration, line["emoji"])
 
@@ -213,6 +299,8 @@ func _create_context_menu() -> void:
 	_context_menu = PopupMenu.new()
 	_context_menu.name = "PetContextMenu"
 	_context_menu.min_size = Vector2i(224, 0)
+	_context_menu.add_item("打开她的日常", MENU_CARE)
+	_context_menu.add_separator()
 	_context_menu.add_item("和她说说话", MENU_TALK)
 	_context_menu.add_check_item("自动散步", MENU_TOGGLE_WANDER)
 	_context_menu.set_item_checked(_context_menu.get_item_index(MENU_TOGGLE_WANDER), true)
@@ -262,6 +350,7 @@ func _style_context_menu() -> void:
 	_context_menu.add_theme_constant_override("item_end_padding", 12)
 	_context_menu.add_theme_constant_override("h_separation", 8)
 	_context_menu.add_theme_constant_override("v_separation", 5)
+	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_CARE), load(CARE_UI_DIR + "/action_comfort.png") as Texture2D)
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_TALK), _load_ui_texture(17))
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_TOGGLE_WANDER), _load_ui_texture(10))
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_CENTER), _load_ui_texture(6))
@@ -283,6 +372,8 @@ func _open_context_menu() -> void:
 
 func _on_context_menu_id_pressed(id: int) -> void:
 	match id:
+		MENU_CARE:
+			_open_care_panel()
 		MENU_TALK:
 			_say_random(3.5)
 		MENU_TOGGLE_WANDER:
@@ -410,26 +501,33 @@ func _update_passthrough() -> void:
 		var poly: PackedVector2Array = polys[frame]
 		if _bubble and _bubble.visible:
 			poly = _merge_bubble_polygon(poly)
+		if _care_feedback and _care_feedback.visible:
+			poly = _merge_rect_polygon(poly, _care_feedback.get_local_bounds())
 		DisplayServer.window_set_mouse_passthrough(poly)
 	else:
 		DisplayServer.window_set_mouse_passthrough(PackedVector2Array())
 
 
 func _merge_bubble_polygon(character_poly: PackedVector2Array) -> PackedVector2Array:
-	var origin: Vector2 = _bubble.position
-	var bubble_poly := PackedVector2Array([
-		origin + Vector2(0, 0),
-		origin + Vector2(0, 90),
-		origin + Vector2(220, 90),
-		origin + Vector2(220, 0)
+	var local_bounds: Rect2 = _bubble.get_local_bounds()
+	var bounds := Rect2(_bubble.position + local_bounds.position, local_bounds.size)
+	return _merge_rect_polygon(character_poly, bounds)
+
+
+func _merge_rect_polygon(base_polygon: PackedVector2Array, bounds: Rect2) -> PackedVector2Array:
+	var rect_polygon := PackedVector2Array([
+		bounds.position,
+		bounds.position + Vector2(0, bounds.size.y),
+		bounds.end,
+		bounds.position + Vector2(bounds.size.x, 0)
 	])
-	var merged := Geometry2D.merge_polygons(character_poly, bubble_poly)
+	var merged := Geometry2D.merge_polygons(base_polygon, rect_polygon)
 	if merged.size() == 1:
 		return merged[0]
 
-	# 正常布局下气泡和角色头部会相交；若某帧没有相交，则用最小凸包保证两者都显示。
-	var all_points := PackedVector2Array(character_poly)
-	all_points.append_array(bubble_poly)
+	# Windows 会同时按穿透区域裁剪透明窗口；不相交时用凸包保证临时 UI 完整可见。
+	var all_points := PackedVector2Array(base_polygon)
+	all_points.append_array(rect_polygon)
 	return Geometry2D.convex_hull(all_points)
 
 
@@ -581,6 +679,8 @@ func _enter_state(s: int) -> void:
 	var previous_state := state
 	state = s
 	_state_time = 0.0
+	if _care_system:
+		_care_system.set_sleeping(s == State.SLEEP)
 	match s:
 		State.IDLE:
 			_state_duration = _rng.randf_range(4.0, 8.0)
@@ -837,6 +937,10 @@ func _on_pet_clicked() -> void:
 		_show_bubble("唔……你叫我呀？", 3.0, "💤")
 		return
 	if state == State.WAKE:
+		return
+	if _care_system and _comfort_cooldown <= 0.0:
+		_comfort_cooldown = 8.0
+		_care_system.perform_action("comfort")
 		return
 	_enter_state(State.IDLE)
 	_state_duration = 5.5

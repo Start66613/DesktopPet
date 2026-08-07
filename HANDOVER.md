@@ -124,6 +124,18 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 2. 打包导出（Export Templates）为 exe，目前只在编辑器/命令行下跑。
 3. 开机自启、任务栏图标隐藏、设置菜单等桌面应用增强（可选）。
 
+## 2026-08-07 养成系统更新
+
+- `scripts/care_system.gd`：管理饱腹、水分、心情、好感和精力；支持真实时间衰减、睡眠恢复、最多 8 小时离线结算，以及 `user://care_state.cfg` 本地存档。
+- `scripts/care_panel.gd`：独立透明置顶养成窗口。右键桌宠选择“打开她的日常”，可进行吃饭、喝水、聊天、娱乐、送礼、摸摸和休息互动；四个物品类别各有 5 个可选项目。
+- `scripts/care_feedback.gd`：在角色旁显示饱腹、水分、心情、好感和精力反馈，并与 Windows 点击穿透区域同步，避免透明窗口裁剪。
+- `scripts/speech_bubble.gd`：换用 Meowa 紧凑气泡本体和独立尖角；气泡高度为 64 像素，尖角位于头发上方，长对白自动排成两行。
+- `assets/care/packages/`：用户提供的四个原始 ZIP 完整归档。
+- `assets/care/source/`：四套 Meowa Godot 导出包的完整解压内容。
+- `assets/care/runtime/`：运行时使用的 38 个语义化 PNG，包括主面板、按钮、20 件物品、气泡和反馈效果。
+- 调试养成面板可使用：`godot --path "d:\game creat\DesktopPet" -- --show-care-panel`。正常启动不会自动打开面板。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260807-232439`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。

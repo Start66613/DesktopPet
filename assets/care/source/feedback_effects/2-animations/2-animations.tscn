@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="SpriteFrames" path="2-animations_frames.tres" id="1_frames"]
+
+[node name="2Animations" type="AnimatedSprite2D"]
+texture_filter = 2
+sprite_frames = ExtResource("1_frames")
+animation = &"2"
+autoplay = "2"
+centered = false
