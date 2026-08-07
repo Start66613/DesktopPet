@@ -136,6 +136,14 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 调试养成面板可使用：`godot --path "d:\game creat\DesktopPet" -- --show-care-panel`。正常启动不会自动打开面板。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260807-232439`。
 
+## 2026-08-08 养成面板布局更新
+
+- `scripts/care_panel.gd`：物品选择器按资源图实际的四列两行卡槽布局，五个物品排为第一行四个、第二行一个；图标与名称均缩小并居中在各自卡槽内。
+- 养成面板底部新增与主面板衔接的粉白操作底板，使七个行动按钮不再悬空。
+- 养成面板顶部和物品选择器标题区域均可拖动窗口，关闭按钮和物品按钮不受影响。
+- `scripts/mirror_preview.gd`：镜面镂空处改为有柔和底色与细线反光的镜子，并循环播放 `assets/sprites/idle/idle_01.png` 至 `idle_08.png` 的待机动画。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-001342`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。

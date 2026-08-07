@@ -3,6 +3,7 @@ class_name PetCarePanel
 
 const PANEL_SIZE := Vector2i(440, 470)
 const CARE_UI_DIR := "res://assets/care/runtime/ui"
+const MirrorPreview := preload("res://scripts/mirror_preview.gd")
 
 const STAT_LAYOUT := [
 	{"key": "fullness", "label": "饱腹", "y": 94.0, "color": Color("ef9b9c")},
@@ -31,7 +32,7 @@ const PICKER_TITLES := {
 
 var _care_system: PetCareSystem
 var _font: Font
-var _portrait: TextureRect
+var _portrait
 var _stat_bars: Dictionary = {}
 var _stat_labels: Dictionary = {}
 var _picker_overlay: Control
@@ -71,7 +72,7 @@ func _ready() -> void:
 func open_at(screen_position: Vector2i, portrait_texture: Texture2D) -> void:
 	position = screen_position
 	if portrait_texture:
-		_portrait.texture = portrait_texture
+		_portrait.set_fallback_texture(portrait_texture)
 	_picker_overlay.visible = false
 	show()
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
@@ -89,21 +90,21 @@ func _build_ui() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(root)
 
+	var action_background := _make_action_background()
+	root.add_child(action_background)
+
 	var background := _make_texture_rect(CARE_UI_DIR + "/care_panel.png", Vector2(20, 4), Vector2(400, 382))
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(background)
 
-	_portrait = TextureRect.new()
+	_portrait = MirrorPreview.new()
 	_portrait.position = Vector2(42, 88)
 	_portrait.size = Vector2(148, 148)
-	_portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	_portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	_portrait.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_portrait)
 
 	for stat in STAT_LAYOUT:
 		_create_stat_row(root, stat)
+	_create_window_drag_handle(root, Vector2(25, 5), Vector2(360, 60))
 
 	var close_button := _make_texture_button(CARE_UI_DIR + "/close.png", Vector2(397, 12), Vector2(30, 30))
 	close_button.tooltip_text = "关闭"
@@ -172,9 +173,42 @@ func _create_action_button(root: Control, index: int, action: Dictionary) -> voi
 	root.add_child(label)
 
 
+func _make_action_background() -> Panel:
+	var background := Panel.new()
+	background.position = Vector2(20, 363)
+	background.size = Vector2(400, 107)
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("fff4f6")
+	style.border_color = Color("eac1c9")
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(16)
+	style.shadow_color = Color(0.34, 0.15, 0.20, 0.18)
+	style.shadow_size = 4
+	style.shadow_offset = Vector2(0, 2)
+	background.add_theme_stylebox_override("panel", style)
+	return background
+
+
+func _create_window_drag_handle(root: Control, handle_position: Vector2, handle_size: Vector2) -> void:
+	var handle := Control.new()
+	handle.position = handle_position
+	handle.size = handle_size
+	handle.mouse_filter = Control.MOUSE_FILTER_STOP
+	handle.mouse_default_cursor_shape = Control.CURSOR_MOVE
+	handle.gui_input.connect(_on_window_drag_handle_gui_input)
+	root.add_child(handle)
+
+
+func _on_window_drag_handle_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		DisplayServer.window_start_drag(get_window_id())
+
+
 func _build_picker(root: Control) -> void:
 	_picker_overlay = Control.new()
 	_picker_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_picker_overlay.z_index = 10
 	_picker_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	_picker_overlay.visible = false
 	root.add_child(_picker_overlay)
@@ -193,6 +227,7 @@ func _build_picker(root: Control) -> void:
 	_picker_title.position = Vector2(80, 143)
 	_picker_title.size = Vector2(280, 30)
 	_picker_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_picker_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_picker_title.add_theme_font_size_override("font_size", 18)
 	_picker_title.add_theme_color_override("font_color", Color("684551"))
 	if _font:
@@ -200,11 +235,11 @@ func _build_picker(root: Control) -> void:
 	_picker_overlay.add_child(_picker_title)
 
 	_picker_grid = GridContainer.new()
-	_picker_grid.columns = 5
-	_picker_grid.position = Vector2(47, 192)
-	_picker_grid.size = Vector2(346, 145)
-	_picker_grid.add_theme_constant_override("h_separation", 5)
-	_picker_grid.add_theme_constant_override("v_separation", 4)
+	_picker_grid.columns = 4
+	_picker_grid.position = Vector2(60, 190)
+	_picker_grid.size = Vector2(320, 146)
+	_picker_grid.add_theme_constant_override("h_separation", 13)
+	_picker_grid.add_theme_constant_override("v_separation", 18)
 	_picker_overlay.add_child(_picker_grid)
 
 	var close_picker := Button.new()
@@ -215,6 +250,7 @@ func _build_picker(root: Control) -> void:
 	close_picker.tooltip_text = "返回"
 	close_picker.pressed.connect(func() -> void: _picker_overlay.visible = false)
 	_picker_overlay.add_child(close_picker)
+	_create_window_drag_handle(_picker_overlay, Vector2(72, 119), Vector2(278, 55))
 
 
 func _build_toast(root: Control) -> void:
@@ -261,12 +297,16 @@ func _open_picker(category: String) -> void:
 	for index in items.size():
 		var item: Dictionary = items[index]
 		var cell := VBoxContainer.new()
-		cell.custom_minimum_size = Vector2(64, 132)
+		cell.custom_minimum_size = Vector2(68, 64)
+		cell.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		cell.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		cell.alignment = BoxContainer.ALIGNMENT_CENTER
 		_picker_grid.add_child(cell)
 
 		var button := TextureButton.new()
-		button.custom_minimum_size = Vector2(62, 82)
+		button.custom_minimum_size = Vector2(52, 42)
+		button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		button.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		button.ignore_texture_size = true
 		button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
 		button.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
@@ -276,12 +316,14 @@ func _open_picker(category: String) -> void:
 		cell.add_child(button)
 
 		var label := Label.new()
-		label.custom_minimum_size = Vector2(64, 36)
+		label.custom_minimum_size = Vector2(66, 17)
+		label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		label.text = item["name"]
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
-		label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		label.add_theme_font_size_override("font_size", 11)
+		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		label.clip_text = true
+		label.add_theme_font_size_override("font_size", 10)
 		label.add_theme_color_override("font_color", Color("684551"))
 		if _font:
 			label.add_theme_font_override("font", _font)
