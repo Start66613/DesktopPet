@@ -12,6 +12,7 @@ const SPRITE_SCALE := 1.0
 const DEFAULT_FPS := 8.0
 const SLEEP_ANIMATION := "sleep"
 const SLEEP_ENTER_ANIMATION := "sleep_enter"
+const SLEEP_IDLE_ANIMATION := "sleep_idle"
 const SLEEP_CHANCE := 0.28
 const SLEEP_MIN_DURATION := 12.0
 const SLEEP_MAX_DURATION := 22.0
@@ -32,6 +33,8 @@ const MENU_TOGGLE_WANDER := 2
 const MENU_CENTER := 3
 const MENU_SLEEP := 4
 const MENU_EXIT := 99
+const UI_TEXTURE_DIR := "res://assets/ui_source/generated/1-animations/textures"
+const PET_FONT_PATH := "res://assets/fonts/ZCOOLKuaiLe-Regular.ttf"
 const SpeechBubble := preload("res://scripts/speech_bubble.gd")
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
@@ -150,7 +153,7 @@ func _create_bubble() -> void:
 	_bubble.name = "SpeechBubble"
 	_bubble.position = Vector2(45, 8)
 	_bubble.z_index = 100
-	_cjk_font = _load_system_font("C:/Windows/Fonts/simhei.ttf")
+	_cjk_font = _load_system_font(PET_FONT_PATH)
 	_emoji_font = _load_system_font("C:/Windows/Fonts/seguiemj.ttf")
 	_bubble.configure_fonts(_cjk_font, _emoji_font)
 	_bubble_layer.add_child(_bubble)
@@ -183,7 +186,7 @@ func _schedule_next_speech() -> void:
 func _create_context_menu() -> void:
 	_context_menu = PopupMenu.new()
 	_context_menu.name = "PetContextMenu"
-	_context_menu.min_size = Vector2i(190, 0)
+	_context_menu.min_size = Vector2i(224, 0)
 	_context_menu.add_item("和她说说话", MENU_TALK)
 	_context_menu.add_check_item("自动散步", MENU_TOGGLE_WANDER)
 	_context_menu.set_item_checked(_context_menu.get_item_index(MENU_TOGGLE_WANDER), true)
@@ -191,9 +194,57 @@ func _create_context_menu() -> void:
 	_context_menu.add_item("让她睡觉", MENU_SLEEP)
 	_context_menu.add_separator()
 	_context_menu.add_item("退出桌宠", MENU_EXIT)
+	_style_context_menu()
 	_context_menu.id_pressed.connect(_on_context_menu_id_pressed)
 	_context_menu.popup_hide.connect(_on_context_menu_closed)
 	add_child(_context_menu)
+
+
+func _style_context_menu() -> void:
+	var panel := StyleBoxFlat.new()
+	panel.bg_color = Color("fff8f4")
+	panel.border_color = Color("d89aa3")
+	panel.set_border_width_all(2)
+	panel.set_corner_radius_all(14)
+	panel.shadow_color = Color(0.18, 0.10, 0.14, 0.28)
+	panel.shadow_size = 7
+	var hover := StyleBoxFlat.new()
+	hover.bg_color = Color("f9c7d0")
+	hover.border_color = Color("e7a2ad")
+	hover.set_border_width_all(1)
+	hover.set_corner_radius_all(9)
+	var focus := StyleBoxFlat.new()
+	focus.bg_color = Color("f7d9de")
+	focus.set_corner_radius_all(9)
+	var separator := StyleBoxFlat.new()
+	separator.bg_color = Color("ecc5c3")
+	separator.content_margin_top = 1.0
+	separator.content_margin_bottom = 1.0
+	_context_menu.add_theme_stylebox_override("panel", panel)
+	_context_menu.add_theme_stylebox_override("hover", hover)
+	_context_menu.add_theme_stylebox_override("focus", focus)
+	_context_menu.add_theme_stylebox_override("separator", separator)
+	_context_menu.add_theme_color_override("font_color", Color("573f49"))
+	_context_menu.add_theme_color_override("font_hover_color", Color("422b36"))
+	_context_menu.add_theme_color_override("font_focus_color", Color("422b36"))
+	_context_menu.add_theme_color_override("font_pressed_color", Color("422b36"))
+	_context_menu.add_theme_color_override("font_disabled_color", Color("bdaab0"))
+	_context_menu.add_theme_font_override("font", _cjk_font)
+	_context_menu.add_theme_font_size_override("font_size", 17)
+	_context_menu.add_theme_constant_override("icon_max_width", 25)
+	_context_menu.add_theme_constant_override("item_start_padding", 12)
+	_context_menu.add_theme_constant_override("item_end_padding", 12)
+	_context_menu.add_theme_constant_override("h_separation", 8)
+	_context_menu.add_theme_constant_override("v_separation", 5)
+	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_TALK), _load_ui_texture(17))
+	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_TOGGLE_WANDER), _load_ui_texture(10))
+	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_CENTER), _load_ui_texture(6))
+	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_SLEEP), _load_ui_texture(18))
+	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_EXIT), _load_ui_texture(28))
+
+
+func _load_ui_texture(number: int) -> Texture2D:
+	return load(UI_TEXTURE_DIR + "/" + str(number) + "_spritesheet.png") as Texture2D
 
 
 func _open_context_menu() -> void:
@@ -643,7 +694,10 @@ func _on_animation_finished() -> void:
 		_drag_pose_ready = true
 		return
 	if state == State.SLEEP and sprite.animation == SLEEP_ENTER_ANIMATION:
-		_play(SLEEP_ANIMATION)
+		if sprite.sprite_frames.has_animation(SLEEP_IDLE_ANIMATION):
+			_play(SLEEP_IDLE_ANIMATION)
+		else:
+			_play(SLEEP_ANIMATION)
 	elif state == State.WAKE and sprite.animation == SLEEP_ENTER_ANIMATION:
 		_enter_state(State.IDLE)
 

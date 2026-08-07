@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="SpriteFrames" path="1786102221298-93e1zy08m2_frames.tres" id="1_frames"]
+
+[node name="178610222129893e1zy08m2" type="AnimatedSprite2D"]
+texture_filter = 1
+sprite_frames = ExtResource("1_frames")
+animation = &"睡觉待机"
+autoplay = "睡觉待机"
+centered = false
