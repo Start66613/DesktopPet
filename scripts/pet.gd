@@ -13,6 +13,7 @@ const DEFAULT_FPS := 8.0
 const SLEEP_ANIMATION := "sleep"
 const SLEEP_ENTER_ANIMATION := "sleep_enter"
 const SLEEP_IDLE_ANIMATION := "sleep_idle"
+const SLEEP_IDLE_FPS := 3.0
 const SLEEP_CHANCE := 0.28
 const SLEEP_MIN_DURATION := 12.0
 const SLEEP_MAX_DURATION := 22.0
@@ -63,12 +64,14 @@ var _bubble_layer: CanvasLayer
 var _bubble_time_left := 0.0
 var _speech_time_left := 0.0
 var _bubble_lines := [
-	{"text": "喵~ 你来啦！", "emoji": "✨"},
-	{"text": "今天也要一起加油！", "emoji": "💪"},
-	{"text": "陪我走走嘛～", "emoji": "🎀"},
-	{"text": "摸摸我就有好心情！", "emoji": "💕"},
-	{"text": "我在这里陪你。", "emoji": ""},
-	{"text": "嘿嘿，被你发现了！", "emoji": "😺"}
+	{"text": "见到你真好 (^_^)", "emoji": "✨"},
+	{"text": "今天也要加油 (>_<)", "emoji": "💪"},
+	{"text": "陪我待会儿嘛 (*^_^*)", "emoji": "🎀"},
+	{"text": "摸摸会开心 (^o^)", "emoji": "💕"},
+	{"text": "我在这里陪你 (._.)", "emoji": ""},
+	{"text": "被你发现啦 (^-^)", "emoji": "😺"},
+	{"text": "偷偷看你一眼 (o_o)", "emoji": "🌸"},
+	{"text": "今天也很可爱呀 (^_^)", "emoji": "💗"}
 ]
 var _cjk_font: Font
 var _emoji_font: Font
@@ -108,7 +111,7 @@ func _ready() -> void:
 	# 设置初始帧的穿透多边形
 	_update_passthrough()
 	_schedule_next_speech()
-	call_deferred("_show_bubble", "你好呀，我会陪着你～ ✨", 4.0)
+	call_deferred("_show_bubble", "你好呀，我会陪着你 (^_^)", 4.0, "✨")
 
 
 func _process(delta: float) -> void:
@@ -151,7 +154,7 @@ func _create_bubble() -> void:
 
 	_bubble = SpeechBubble.new()
 	_bubble.name = "SpeechBubble"
-	_bubble.position = Vector2(45, 8)
+	_bubble.position = Vector2(40, 0)
 	_bubble.z_index = 100
 	_cjk_font = _load_system_font(PET_FONT_PATH)
 	_emoji_font = _load_system_font("C:/Windows/Fonts/seguiemj.ttf")
@@ -395,12 +398,9 @@ func _merge_bubble_polygon(character_poly: PackedVector2Array) -> PackedVector2A
 	var origin: Vector2 = _bubble.position
 	var bubble_poly := PackedVector2Array([
 		origin + Vector2(0, 0),
-		origin + Vector2(0, 64),
-		origin + Vector2(145, 64),
-		origin + Vector2(153, 82),
-		origin + Vector2(161, 64),
-		origin + Vector2(230, 64),
-		origin + Vector2(230, 0)
+		origin + Vector2(0, 90),
+		origin + Vector2(220, 90),
+		origin + Vector2(220, 0)
 	])
 	var merged := Geometry2D.merge_polygons(character_poly, bubble_poly)
 	if merged.size() == 1:
@@ -488,6 +488,8 @@ func _load_movement_animations(frames: SpriteFrames) -> void:
 								_load_sleep_animations(frames, source, source_animation)
 							else:
 								_copy_animation(frames, direction, source, source_animation)
+								if direction == SLEEP_IDLE_ANIMATION:
+									frames.set_animation_speed(SLEEP_IDLE_ANIMATION, SLEEP_IDLE_FPS)
 		direction = root.get_next()
 	root.list_dir_end()
 
