@@ -366,8 +366,26 @@ func _open_context_menu() -> void:
 	_dragging = false
 	_finish_drag_visual()
 	DisplayServer.window_set_mouse_passthrough(PackedVector2Array())
-	_context_menu.position = Vector2i(get_viewport().get_mouse_position())
+	var mouse_position := DisplayServer.mouse_get_position()
+	var screen := DisplayServer.window_get_current_screen()
+	if screen < 0:
+		screen = 0
+	var usable := DisplayServer.screen_get_usable_rect(screen)
+	var content_size := _context_menu.get_contents_minimum_size()
+	var menu_size := Vector2i(maxi(roundi(content_size.x), 224), maxi(roundi(content_size.y), 190))
+	var pet_position := DisplayServer.window_get_position()
+	var pet_size := DisplayServer.window_get_size()
+	var right_position := Vector2i(pet_position.x + pet_size.x + 8, mouse_position.y - menu_size.y / 3)
+	var left_position := Vector2i(pet_position.x - menu_size.x - 8, mouse_position.y - menu_size.y / 3)
+	var popup_position := right_position
+	if popup_position.x + menu_size.x > usable.end.x:
+		popup_position = left_position
+	popup_position.x = mini(popup_position.x, usable.end.x - menu_size.x)
+	popup_position.x = maxi(popup_position.x, usable.position.x)
+	popup_position.y = clampi(popup_position.y, usable.position.y, usable.end.y - menu_size.y)
+	_context_menu.position = popup_position
 	_context_menu.popup()
+	DisplayServer.window_set_position(popup_position, _context_menu.get_window_id())
 
 
 func _on_context_menu_id_pressed(id: int) -> void:
