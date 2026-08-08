@@ -263,3 +263,15 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。
+
+## 2026-08-08 羽毛球窗口细化与完整音频
+
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-221759`。
+- `scripts/badminton_game_panel.gd`：游戏内容保持 `960x720`，原生窗口扩为 `984x744`，新增 12px 奶油粉双层边框；边框可拖动窗口，球拍坐标同步扣除内容偏移。
+- 计分板回合数字按源图爱心中心重新定位到运行时约 `(496, 47)`；视觉 QA 见 `logs/badminton_frame_and_heart_qa.png`。
+- `scripts/companion_settings_panel.gd`：移除大按钮 `StyleBoxTexture` 的错误 90px 上下边距，并将底部按钮调整为完整的 `390x195`，花边、蝴蝶结和文字不再被切割；视觉 QA 见 `logs/settings_buttons_fixed_qa.png`。
+- `assets/minigames/badminton/runtime/audio/`：接入一首约 173.453 秒的循环 BGM 和 9 个事件音效，覆盖 UI 确认、发球、普通击球、完美回击、扣杀、双方得分及胜负。
+- BGM 默认 `-12 dB`、音效默认 `-4 dB`；窗口打开开始播放，暂停菜单同步暂停/恢复，窗口关闭停止。音频支持运行目录中的 OGG、MP3 或 WAV 同名替换。
+- `docs/BADMINTON_AUDIO_MEOWA_PROMPTS.md`：记录本次英文提示词、Meowa 音乐/音效包生成步骤、语义化文件名与验收标准；原始生成结果保留在 `outputs/meowa-badminton-audio-20260808/`。
+- `tools/badminton_audio_qa.gd`：自动检查 10 个运行时音频是否可加载、时长是否有效以及 MP3 循环标记；Godot 4.7.1 实测全部通过。
+- 运行验证：Godot 编辑器导入和脚本解析通过；真实比赛、暂停与恢复正常，`logs/badminton_audio_runtime.err.log` 无错误。最终画面见 `logs/badminton_audio_live.png` 与 `logs/badminton_audio_pause_live.png`。

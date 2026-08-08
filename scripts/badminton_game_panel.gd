@@ -6,8 +6,12 @@ signal game_finished(player_won: bool, best_rally: int)
 signal game_closed
 
 const GAME_SIZE := Vector2i(960, 720)
+const FRAME_WIDTH := 12
+const WINDOW_SIZE := GAME_SIZE + Vector2i(FRAME_WIDTH * 2, FRAME_WIDTH * 2)
+const CONTENT_OFFSET := Vector2(FRAME_WIDTH, FRAME_WIDTH)
 const ASSET_DIR := "res://assets/minigames/badminton/runtime"
 const UI_DIR := ASSET_DIR + "/ui"
+const AUDIO_DIR := ASSET_DIR + "/audio"
 const WIN_SCORE := 5
 const PLAYER_DEPTH := 0.04
 const PET_DEPTH := 0.86
@@ -63,6 +67,8 @@ var _smash_label: Label
 var _difficulty_buttons: Dictionary = {}
 var _difficulty_selected_label: Label
 var _button_tweens: Dictionary = {}
+var _music_player: AudioStreamPlayer
+var _sfx_players: Dictionary = {}
 
 var _phase: int = Phase.MENU
 var _phase_before_pause: int = Phase.MENU
@@ -104,9 +110,9 @@ var _racket_velocity := Vector2.ZERO
 func _init() -> void:
 	visible = false
 	title = "桌面羽毛球"
-	size = GAME_SIZE
-	min_size = GAME_SIZE
-	content_scale_size = GAME_SIZE
+	size = WINDOW_SIZE
+	min_size = WINDOW_SIZE
+	content_scale_size = WINDOW_SIZE
 	content_scale_mode = Window.CONTENT_SCALE_MODE_DISABLED
 	content_scale_factor = 1.0
 	borderless = true
@@ -124,6 +130,7 @@ func configure(font: Font, pet_frames: SpriteFrames) -> void:
 func _ready() -> void:
 	_rng.randomize()
 	close_requested.connect(_close_game)
+	_build_audio()
 	_build_ui()
 	_show_start_menu()
 
@@ -135,6 +142,7 @@ func open_at(screen_position: Vector2i) -> void:
 	grab_focus()
 	if _phase == Phase.FINISHED or _phase == Phase.MENU:
 		_show_start_menu()
+	_start_music()
 	_play_open_animation()
 
 
@@ -184,8 +192,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _build_ui() -> void:
+	_build_window_frame()
 	_root = Control.new()
 	_root.name = "BadmintonRoot"
+	_root.position = CONTENT_OFFSET
 	_root.size = Vector2(GAME_SIZE)
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	_root.gui_input.connect(_on_root_gui_input)
@@ -266,7 +276,7 @@ func _build_hud() -> void:
 	scoreboard.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_score_player = _make_label(_hud, "你  0", Vector2(218, 39), Vector2(190, 42), 25, Color("7d4757"))
 	_score_pet = _make_label(_hud, "她  0", Vector2(552, 39), Vector2(190, 42), 25, Color("48635d"))
-	_round_label = _make_label(_hud, "5", Vector2(445, 39), Vector2(70, 42), 23, Color("7a5260"))
+	_round_label = _make_label(_hud, "5", Vector2(472, 28), Vector2(48, 38), 20, Color("7a5260"))
 
 	var pause_button := _make_icon_button(_root, "pause.png", Vector2(852, 18), Vector2(58, 58), "暂停", _toggle_pause)
 	pause_button.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -371,6 +381,7 @@ func _select_difficulty(key: String) -> void:
 	if not DIFFICULTIES.has(key):
 		return
 	_difficulty = key
+	_play_sfx("ui_confirm")
 	_refresh_difficulty_display()
 
 
@@ -404,6 +415,8 @@ func _start_match() -> void:
 	_smash_label.visible = true
 	_update_hud()
 	_play_pet_idle()
+	_start_music()
+	_play_sfx("ui_confirm")
 	game_started.emit()
 	_begin_point()
 
@@ -430,6 +443,7 @@ func _launch_to_player() -> void:
 	_start_flight(false, _pet_x, target_x, float(config["shot_time"]), 0.54, false)
 	_landing_marker.position = _project_court(target_x, PLAYER_DEPTH, 0.0)
 	_landing_marker.visible = true
+	_play_sfx("serve" if _rally == 0 else "hit")
 
 
 func _launch_to_pet(power: float, target_x: float, smash: bool) -> void:
@@ -522,6 +536,7 @@ func _try_player_hit(from_click: bool) -> void:
 	_best_rally = maxi(_best_rally, _rally)
 	var target_x := clampf((_racket_position.x - 480.0) / 360.0 + _racket_velocity.x / 1900.0, -0.92, 0.92)
 	_show_effect("perfect_burst.png" if perfect or smash else "impact_burst.png", _shuttle.position, 0.72 if perfect else 0.42, 0.36)
+	_play_sfx("smash" if smash else ("perfect" if perfect else "hit"))
 	_show_status("完美回击！" if perfect else "接到了！", 0.68)
 	_update_hud()
 	_launch_to_pet(quality, target_x, smash)
@@ -559,10 +574,12 @@ func _award_point(player_scored: bool) -> void:
 	_landing_marker.visible = false
 	if player_scored:
 		_player_score += 1
+		_play_sfx("score_player")
 		_show_status("漂亮！你得分啦", 1.35)
 		_show_effect("score_burst.png", Vector2(285, 66), 1.10, 0.55)
 	else:
 		_pet_score += 1
+		_play_sfx("score_pet")
 		_combo = 0
 		_smash_power = maxf(_smash_power - 20.0, 0.0)
 		_show_status("嘿嘿，这球归我", 1.35)
@@ -585,6 +602,7 @@ func _finish_match() -> void:
 	_smash_label.visible = false
 	_status_panel.visible = false
 	var player_won := _player_score > _pet_score
+	_play_sfx("win" if player_won else "lose")
 	if player_won:
 		_show_effect("score_burst.png", Vector2(480, 320), 2.0, 0.9)
 	if not _result_emitted:
@@ -601,6 +619,9 @@ func _toggle_pause() -> void:
 		return
 	_phase_before_pause = _phase
 	_phase = Phase.PAUSED
+	if _music_player:
+		_music_player.stream_paused = true
+	_play_sfx("ui_confirm")
 	_show_pause_menu()
 
 
@@ -608,6 +629,9 @@ func _resume_match() -> void:
 	if _phase != Phase.PAUSED:
 		return
 	_phase = _phase_before_pause
+	if _music_player:
+		_music_player.stream_paused = false
+	_play_sfx("ui_confirm")
 	_modal.visible = false
 	_show_status("继续！", 0.55)
 
@@ -622,6 +646,7 @@ func _close_game() -> void:
 	_combo_panel.visible = false
 	_smash_meter.visible = false
 	_smash_label.visible = false
+	_stop_music()
 	hide()
 	game_closed.emit()
 
@@ -629,7 +654,7 @@ func _close_game() -> void:
 func _update_racket(delta: float) -> void:
 	if not _game_active or _phase == Phase.PAUSED:
 		return
-	var mouse := get_mouse_position()
+	var mouse := get_mouse_position() - CONTENT_OFFSET
 	var inside := Rect2(Vector2.ZERO, Vector2(GAME_SIZE)).has_point(mouse)
 	if inside:
 		_racket_position = Vector2(clampf(mouse.x, 80.0, 880.0), clampf(mouse.y, 355.0, 675.0))
@@ -760,6 +785,11 @@ func _on_root_gui_input(event: InputEvent) -> void:
 		_animate_racket_swing()
 
 
+func _on_frame_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		DisplayServer.window_start_drag(get_window_id())
+
+
 func _play_open_animation() -> void:
 	_root.modulate = Color.WHITE
 	_root.scale = Vector2.ONE * 0.96
@@ -767,6 +797,101 @@ func _play_open_animation() -> void:
 	var tween := _root.create_tween()
 	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tween.tween_property(_root, "scale", Vector2.ONE, 0.24)
+
+
+func _build_window_frame() -> void:
+	var frame_background := ColorRect.new()
+	frame_background.name = "WindowFrame"
+	frame_background.size = Vector2(WINDOW_SIZE)
+	frame_background.color = Color("fbe9e4")
+	frame_background.mouse_filter = Control.MOUSE_FILTER_STOP
+	frame_background.mouse_default_cursor_shape = Control.CURSOR_MOVE
+	frame_background.gui_input.connect(_on_frame_gui_input)
+	add_child(frame_background)
+
+	var outer_style := StyleBoxFlat.new()
+	outer_style.bg_color = Color.TRANSPARENT
+	outer_style.border_color = Color("d98f9d")
+	outer_style.set_border_width_all(3)
+	outer_style.set_corner_radius_all(7)
+	var outer_border := Panel.new()
+	outer_border.position = Vector2(2, 2)
+	outer_border.size = Vector2(WINDOW_SIZE) - Vector2(4, 4)
+	outer_border.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	outer_border.add_theme_stylebox_override("panel", outer_style)
+	frame_background.add_child(outer_border)
+
+	var inner_style := StyleBoxFlat.new()
+	inner_style.bg_color = Color.TRANSPARENT
+	inner_style.border_color = Color("fff8f0")
+	inner_style.set_border_width_all(2)
+	inner_style.set_corner_radius_all(5)
+	var inner_border := Panel.new()
+	inner_border.position = Vector2(7, 7)
+	inner_border.size = Vector2(WINDOW_SIZE) - Vector2(14, 14)
+	inner_border.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner_border.add_theme_stylebox_override("panel", inner_style)
+	frame_background.add_child(inner_border)
+
+
+func _build_audio() -> void:
+	_music_player = AudioStreamPlayer.new()
+	_music_player.name = "BadmintonMusic"
+	_music_player.volume_db = -12.0
+	add_child(_music_player)
+	var music_path := _find_audio_file("badminton_bgm")
+	if not music_path.is_empty():
+		_music_player.stream = load(music_path) as AudioStream
+		_set_stream_loop(_music_player.stream)
+
+	for effect_name in ["ui_confirm", "serve", "hit", "perfect", "smash", "score_player", "score_pet", "win", "lose"]:
+		var effect_path := _find_audio_file(effect_name)
+		if effect_path.is_empty():
+			continue
+		var player := AudioStreamPlayer.new()
+		player.name = "SFX_" + effect_name
+		player.stream = load(effect_path) as AudioStream
+		player.volume_db = -4.0
+		add_child(player)
+		_sfx_players[effect_name] = player
+
+
+func _find_audio_file(stem: String) -> String:
+	for extension in ["ogg", "mp3", "wav"]:
+		var path := "%s/%s.%s" % [AUDIO_DIR, stem, extension]
+		if ResourceLoader.exists(path):
+			return path
+	return ""
+
+
+func _set_stream_loop(stream: AudioStream) -> void:
+	if stream is AudioStreamOggVorbis:
+		(stream as AudioStreamOggVorbis).loop = true
+	elif stream is AudioStreamMP3:
+		(stream as AudioStreamMP3).loop = true
+	elif stream is AudioStreamWAV:
+		(stream as AudioStreamWAV).loop_mode = AudioStreamWAV.LOOP_FORWARD
+
+
+func _start_music() -> void:
+	if not _music_player or not _music_player.stream:
+		return
+	_music_player.stream_paused = false
+	if not _music_player.playing:
+		_music_player.play()
+
+
+func _stop_music() -> void:
+	if _music_player:
+		_music_player.stop()
+
+
+func _play_sfx(effect_name: String) -> void:
+	var player: AudioStreamPlayer = _sfx_players.get(effect_name)
+	if not player:
+		return
+	player.stop()
+	player.play()
 
 
 func _make_texture_rect(parent: Node, texture_name: String, rect_position: Vector2, rect_size: Vector2) -> TextureRect:

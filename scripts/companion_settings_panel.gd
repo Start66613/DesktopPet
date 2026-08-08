@@ -183,12 +183,12 @@ func _build_awareness_controls() -> void:
 
 
 func _build_action_buttons() -> void:
-	var think_button := _make_action_button("现在来陪我", Vector2(275, 790), Vector2(390, 145))
+	var think_button := _make_action_button("现在来陪我", Vector2(275, 760), Vector2(390, 195))
 	think_button.tooltip_text = "关闭设置并立即进行一次主动判断"
 	think_button.pressed.connect(_on_think_now_pressed)
 	_root.add_child(think_button)
 
-	var done_button := _make_action_button("完成", Vector2(815, 790), Vector2(390, 145))
+	var done_button := _make_action_button("完成", Vector2(815, 760), Vector2(390, 195))
 	done_button.pressed.connect(hide_panel)
 	_root.add_child(done_button)
 
@@ -455,12 +455,6 @@ func _make_action_button(text: String, node_position: Vector2, node_size: Vector
 func _make_button_texture(number: int) -> StyleBoxTexture:
 	var style := StyleBoxTexture.new()
 	style.texture = load(UI_DIR + "/%d_spritesheet.png" % number) as Texture2D
-	style.texture_margin_left = 90.0
-	style.texture_margin_top = 90.0
-	style.texture_margin_right = 90.0
-	style.texture_margin_bottom = 90.0
-	style.content_margin_left = 50.0
-	style.content_margin_right = 50.0
 	return style
 
 

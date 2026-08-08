@@ -1,5 +1,7 @@
 # 桌面羽毛球 Meowa 资源生成说明
 
+音乐与音效的提示词及生成步骤见 `docs/BADMINTON_AUDIO_MEOWA_PROMPTS.md`。
+
 ## 资源合同
 
 第一版只需要两次核心生成：
