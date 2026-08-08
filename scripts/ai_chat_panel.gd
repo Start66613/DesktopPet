@@ -92,8 +92,6 @@ func configure(font: Font, care_system: PetCareSystem) -> void:
 
 func _ready() -> void:
 	close_requested.connect(hide_panel)
-	focus_entered.connect(_on_window_focus_entered)
-	visibility_changed.connect(_on_window_visibility_changed)
 	_build_ui()
 	_load_settings()
 	_load_history()
@@ -106,10 +104,13 @@ func _ready() -> void:
 
 func open_at(screen_position: Vector2i) -> void:
 	position = screen_position
+	mode = Window.MODE_WINDOWED
 	_prepare_open_animation()
 	show()
-	_restore_native_window(screen_position)
-	call_deferred("_restore_native_window", screen_position)
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
+	get_viewport().transparent_bg = true
+	_root.visible = true
+	_root.queue_redraw()
 	grab_focus()
 	call_deferred("_bring_to_front")
 	_play_open_animation()
@@ -126,31 +127,6 @@ func hide_panel() -> void:
 func _bring_to_front() -> void:
 	if visible:
 		grab_focus()
-
-
-func _restore_native_window(screen_position: Vector2i) -> void:
-	if not is_inside_tree():
-		return
-	var window_id := get_window_id()
-	if window_id < 0:
-		return
-	mode = Window.MODE_WINDOWED
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED, window_id)
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, window_id)
-	get_viewport().transparent_bg = true
-	DisplayServer.window_set_position(screen_position, window_id)
-	if _root:
-		_root.visible = true
-
-
-func _on_window_focus_entered() -> void:
-	if visible and mode != Window.MODE_MINIMIZED:
-		call_deferred("_restore_native_window", position)
-
-
-func _on_window_visibility_changed() -> void:
-	if visible and mode != Window.MODE_MINIMIZED:
-		call_deferred("_restore_native_window", position)
 
 
 func _build_ui() -> void:
@@ -449,7 +425,9 @@ func _on_drag_handle_gui_input(event: InputEvent) -> void:
 
 
 func _minimize_window() -> void:
-	mode = Window.MODE_MINIMIZED
+	_settings_overlay.visible = false
+	mode = Window.MODE_WINDOWED
+	hide()
 
 
 func _prepare_open_animation() -> void:
