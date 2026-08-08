@@ -8,15 +8,37 @@ signal settings_changed
 const API_CONFIG_PATH := "user://ai_chat.cfg"
 const SETTINGS_PATH := "user://companion_settings.cfg"
 const MEMORY_PATH := "user://companion_memory.json"
+const DEBUG_LOG_PATH := "user://proactive_debug.log"
 const INITIAL_DELAY_MIN := 25.0
 const INITIAL_DELAY_MAX := 45.0
 const MIN_FREQUENCY_MINUTES := 5.0 / 60.0
 const MAX_FREQUENCY_MINUTES := 10.0
 const FAILURE_DELAY_MIN := 120.0
 const FAILURE_DELAY_MAX := 300.0
+const API_FAILURE_BACKOFF_SECONDS := 45.0
+const API_RATE_LIMIT_BACKOFF_SECONDS := 90.0
 const MAX_RECENT_EVENTS := 12
 const MAX_RECENT_LINES := 8
 const MAX_MESSAGE_LENGTH := 46
+const MANUAL_FALLBACK_LINES := [
+	{"text": "我在呀，刚刚又偷偷靠近你一点 (^_^)", "emoji": "🌸"},
+	{"text": "有听见你叫我哦，我会好好陪着你的。", "emoji": "💕"},
+	{"text": "来啦来啦，今天也想和你待在一起。", "emoji": "✨"}
+]
+const AUTO_FALLBACK_LINES := [
+	{"text": "我来冒个泡，看看你有没有偷偷忘记休息。", "emoji": "🌸"},
+	{"text": "我就在旁边呀，忙的时候也不用急着理我。", "emoji": "💕"},
+	{"text": "陪你安静待一会儿，好像也很不错。", "emoji": "✨"},
+	{"text": "伸个懒腰吧，肩膀也该放松一下啦。", "emoji": "🌿"},
+	{"text": "今天也在一点一点前进呢，很棒哦。", "emoji": "⭐"},
+	{"text": "偶尔发会儿呆也没关系，我帮你守着时间。", "emoji": "☁️"},
+	{"text": "嘿，我刚刚有在认真陪着你哦。", "emoji": "💗"},
+	{"text": "喝口水再继续吧，我会乖乖等你的。", "emoji": "🥤"},
+	{"text": "别把自己绷得太紧啦，慢慢来也可以。", "emoji": "🌷"},
+	{"text": "突然想告诉你，有我陪着呢。", "emoji": "💫"},
+	{"text": "手边的事情还顺利吗？要记得照顾自己。", "emoji": "🍀"},
+	{"text": "能这样待在你的桌面上，我还挺开心的。", "emoji": "🎀"}
+]
 
 var _care_system: PetCareSystem
 var _request: HTTPRequest
@@ -28,6 +50,7 @@ var _quiet_hours_enabled := false
 var _available := false
 var _request_pending := false
 var _force_next_speech := false
+var _manual_request_pending := false
 var _time_until_thought := 90.0
 var _session_seconds := 0.0
 var _seconds_since_interaction := 0.0
@@ -35,6 +58,8 @@ var _runtime_context: Dictionary = {}
 var _recent_events: Array = []
 var _recent_lines: Array = []
 var _last_spoke_at := 0.0
+var _api_backoff_until := 0.0
+var _queued_message: Dictionary = {}
 
 
 func configure(care_system: PetCareSystem) -> void:
@@ -45,6 +70,11 @@ func _ready() -> void:
 	_rng.randomize()
 	_load_settings()
 	_load_memory()
+	if OS.is_debug_build():
+		var debug_file := FileAccess.open(DEBUG_LOG_PATH, FileAccess.WRITE)
+		if debug_file:
+			debug_file.close()
+	_debug_log("ready enabled=%s frequency=%.2fs" % [_enabled, _frequency_minutes * 60.0])
 	_request = HTTPRequest.new()
 	_request.timeout = 45.0
 	_request.use_threads = true
@@ -56,16 +86,21 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_session_seconds += delta
 	_seconds_since_interaction += delta
-	if not _enabled or not _available or _request_pending or _is_quiet_hours_now():
+	if not _enabled or _request_pending or _is_quiet_hours_now():
 		return
 	_time_until_thought -= delta
-	if _time_until_thought <= 0.0:
+	if _time_until_thought <= 0.0 and _available:
 		_request_thought()
 
 
 func set_runtime_context(context: Dictionary) -> void:
 	_runtime_context = context.duplicate(true)
-	_available = bool(_runtime_context.get("available", false))
+	var next_available := bool(_runtime_context.get("available", false))
+	if next_available != _available:
+		_debug_log("available=%s state=%s" % [next_available, String(_runtime_context.get("state", "unknown"))])
+	_available = next_available
+	if _available and not _queued_message.is_empty():
+		_emit_queued_message()
 
 
 func is_enabled() -> bool:
@@ -76,9 +111,13 @@ func set_enabled(value: bool) -> void:
 	if _enabled == value:
 		return
 	_enabled = value
-	if not _enabled and _request_pending and _request:
-		_request.cancel_request()
-		_request_pending = false
+	if not _enabled:
+		if _request_pending and _request:
+			_request.cancel_request()
+			_request_pending = false
+		_manual_request_pending = false
+		_force_next_speech = false
+		_queued_message.clear()
 	_save_settings()
 	if _enabled:
 		_schedule_initial_thought()
@@ -127,6 +166,7 @@ func set_quiet_hours_enabled(value: bool) -> void:
 func request_thought_now() -> void:
 	if _enabled:
 		_force_next_speech = true
+		_manual_request_pending = true
 		_time_until_thought = 0.0
 
 
@@ -140,6 +180,10 @@ func clear_memory() -> void:
 
 func get_memory_count() -> int:
 	return _recent_events.size() + _recent_lines.size()
+
+
+func get_last_spoke_at() -> float:
+	return _last_spoke_at
 
 
 func mark_user_activity() -> void:
@@ -159,15 +203,25 @@ func note_interaction(description: String) -> void:
 
 
 func _request_thought() -> void:
-	if _is_quiet_hours_now():
+	if _is_quiet_hours_now() and not _manual_request_pending:
 		_schedule_next_thought()
+		return
+	if Time.get_unix_time_from_system() < _api_backoff_until:
+		_debug_log("request skipped: API cooling down")
+		if _emit_local_fallback(true):
+			return
+		_schedule_failure_retry()
 		return
 	var api := _load_api_settings()
 	if api.is_empty():
+		_debug_log("request skipped: API configuration missing")
+		if _emit_local_fallback(true):
+			return
 		_schedule_failure_retry()
 		return
 
 	_request_pending = true
+	_debug_log("request started manual=%s" % _manual_request_pending)
 	var context_prompt := _build_context_prompt()
 	var payload := {
 		"model": api["model"],
@@ -177,15 +231,18 @@ func _request_thought() -> void:
 		],
 		"stream": false
 	}
+	if _supports_json_mode(String(api["endpoint"])):
+		payload["response_format"] = {"type": "json_object"}
 	_force_next_speech = false
 	var headers := PackedStringArray([
-		"Content-Type: application/json",
+		"Content-Type: application/json; charset=utf-8",
 		"Authorization: Bearer " + String(api["key"])
 	])
 	var error := _request.request(String(api["endpoint"]), headers, HTTPClient.METHOD_POST, JSON.stringify(payload))
 	if error != OK:
 		_request_pending = false
-		_schedule_failure_retry()
+		_debug_log("request start failed error=%d" % error)
+		_handle_failed_thought(API_FAILURE_BACKOFF_SECONDS)
 
 
 func _load_api_settings() -> Dictionary:
@@ -200,6 +257,14 @@ func _load_api_settings() -> Dictionary:
 	if endpoint.is_empty() or model.is_empty() or key.is_empty():
 		return {}
 	return {"endpoint": endpoint, "model": model, "key": key}
+
+
+func _supports_json_mode(endpoint: String) -> bool:
+	var normalized := endpoint.to_lower()
+	return normalized.contains("api.openai.com") \
+		or normalized.contains("api.deepseek.com") \
+		or normalized.contains("open.bigmodel.cn") \
+		or normalized.contains("api.siliconflow.cn")
 
 
 func _build_system_prompt() -> String:
@@ -242,8 +307,8 @@ func _build_context_prompt() -> String:
 				concurrent_text
 			]
 	var trigger_instruction := "请判断现在是否开口。"
-	if _force_next_speech:
-		trigger_instruction = "这是用户点击的主动陪伴测试，本次必须返回 speak=true，并自然地说一句话。"
+	if _force_next_speech or _frequency_minutes * 60.0 <= 30.0:
+		trigger_instruction = "当前处于高频陪伴或测试模式，本次必须返回 speak=true，并自然地说一句话。"
 	return "当前时间：%s。桌宠状态：%s。用户已经约%d分钟没有直接互动。桌宠已陪伴本次会话约%d分钟。饱腹%d，水分%d，心情%d，好感%d，精力%d。前台应用：%s。最近事件：%s。最近主动说过：%s。%s" % [
 		time_label,
 		state_name,
@@ -263,46 +328,148 @@ func _build_context_prompt() -> String:
 
 func _on_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	_request_pending = false
-	if not _enabled or not _available:
-		_schedule_silent_retry()
+	_debug_log("request completed result=%d status=%d" % [result, response_code])
+	if not _enabled:
+		_manual_request_pending = false
 		return
 	if result != HTTPRequest.RESULT_SUCCESS or response_code < 200 or response_code >= 300:
-		_schedule_failure_retry()
+		var backoff_seconds := API_RATE_LIMIT_BACKOFF_SECONDS if response_code == 429 else API_FAILURE_BACKOFF_SECONDS
+		_handle_failed_thought(backoff_seconds)
 		return
 
 	var parsed = JSON.parse_string(body.get_string_from_utf8())
 	if not parsed is Dictionary:
-		_schedule_failure_retry()
+		_handle_failed_thought(API_FAILURE_BACKOFF_SECONDS)
 		return
 	var choices = parsed.get("choices", [])
 	if not choices is Array or choices.is_empty() or not choices[0] is Dictionary:
-		_schedule_failure_retry()
+		_handle_failed_thought(API_FAILURE_BACKOFF_SECONDS)
 		return
 	var message_data = choices[0].get("message", {})
 	if not message_data is Dictionary:
-		_schedule_failure_retry()
+		_handle_failed_thought(API_FAILURE_BACKOFF_SECONDS)
 		return
 	var thought := _parse_thought(String(message_data.get("content", "")))
 	if thought.is_empty():
-		_schedule_failure_retry()
+		_debug_log("response rejected: invalid companion JSON")
+		_handle_failed_thought(API_FAILURE_BACKOFF_SECONDS)
 		return
 	if not bool(thought.get("speak", false)):
+		_debug_log("response chose silence")
+		if _emit_local_fallback(_frequency_minutes * 60.0 <= 30.0):
+			return
 		_schedule_silent_retry()
 		return
 
 	var text := _clean_message(String(thought.get("text", "")))
 	var emoji := String(thought.get("emoji", "")).strip_edges()
 	if text.is_empty() or _was_recently_said(text):
+		if _emit_local_fallback(_frequency_minutes * 60.0 <= 30.0):
+			return
 		_schedule_silent_retry()
 		return
 	if emoji.length() > 8:
 		emoji = ""
+	_api_backoff_until = 0.0
+	_deliver_or_queue_message(text, emoji, "ai")
+
+
+func _handle_failed_thought(backoff_seconds: float) -> void:
+	_api_backoff_until = Time.get_unix_time_from_system() + backoff_seconds
+	if _emit_local_fallback(true):
+		return
+	_schedule_failure_retry()
+
+
+func _emit_local_fallback(allow_automatic: bool = false) -> bool:
+	if (not _manual_request_pending and not allow_automatic) or not _enabled:
+		return false
+	var was_manual := _manual_request_pending
+	_manual_request_pending = false
+	_force_next_speech = false
+	var candidates: Array = MANUAL_FALLBACK_LINES if was_manual else _get_contextual_fallback_lines()
+	var start_index := _rng.randi_range(0, candidates.size() - 1)
+	var fallback: Dictionary = candidates[start_index]
+	for offset in candidates.size():
+		var candidate: Dictionary = candidates[(start_index + offset) % candidates.size()]
+		if not _was_recently_said(String(candidate["text"])):
+			fallback = candidate
+			break
+	var text := String(fallback["text"])
+	_deliver_or_queue_message(text, String(fallback["emoji"]), "manual" if was_manual else "local")
+	return true
+
+
+func _deliver_or_queue_message(text: String, emoji: String, source: String) -> void:
+	_manual_request_pending = false
+	_force_next_speech = false
+	if not _available:
+		_queued_message = {"text": text, "emoji": emoji, "source": source}
+		_debug_log("message queued source=%s" % source)
+		return
+	_emit_message_now(text, emoji, source)
+
+
+func _emit_queued_message() -> void:
+	if not _enabled or not _available or _queued_message.is_empty():
+		return
+	var queued := _queued_message.duplicate()
+	_queued_message.clear()
+	_emit_message_now(String(queued.get("text", "")), String(queued.get("emoji", "")), String(queued.get("source", "queued")))
+
+
+func _emit_message_now(text: String, emoji: String, source: String) -> void:
 	_recent_lines.append(text)
 	_trim_array(_recent_lines, MAX_RECENT_LINES)
 	_last_spoke_at = Time.get_unix_time_from_system()
 	_save_memory()
 	message_ready.emit(text, emoji)
+	_debug_log("message emitted source=%s length=%d" % [source, text.length()])
 	_schedule_next_thought()
+
+
+func _get_contextual_fallback_lines() -> Array:
+	var lines: Array = AUTO_FALLBACK_LINES.duplicate(true)
+	var hour := int(Time.get_datetime_dict_from_system().get("hour", 12))
+	if hour < 6 or hour >= 23:
+		lines.append({"text": "已经很晚啦，我陪你把手边这点做完就休息。", "emoji": "🌙"})
+	elif hour < 10:
+		lines.append({"text": "早呀，今天也一起慢慢进入状态吧。", "emoji": "☀️"})
+	elif hour >= 18:
+		lines.append({"text": "天快黑啦，忙了一天也该对自己温柔一点。", "emoji": "🌙"})
+
+	if _care_system:
+		var stats := _care_system.get_stats()
+		if float(stats.get("hydration", 75.0)) < 40.0:
+			lines.append({"text": "我有点想喝东西啦，你也一起喝口水嘛。", "emoji": "🥤"})
+		if float(stats.get("fullness", 75.0)) < 40.0:
+			lines.append({"text": "肚子在小声提醒我，该找点好吃的啦。", "emoji": "🍰"})
+		if float(stats.get("energy", 75.0)) < 35.0:
+			lines.append({"text": "稍微有点困啦，要不要一起休息一下？", "emoji": "💤"})
+
+	var app_info: Dictionary = _runtime_context.get("foreground_app", {})
+	match String(app_info.get("activity", "")):
+		"工作或学习":
+			lines.append({"text": "认真工作的时候也别忘了眨眨眼、放松一下。", "emoji": "🌿"})
+		"编程或创作":
+			lines.append({"text": "创作中的你很专注呢，我在旁边给你加油。", "emoji": "✨"})
+		"浏览网页":
+			lines.append({"text": "逛了这么久，要不要抬头看看远处呀？", "emoji": "☁️"})
+		"准备玩游戏":
+			lines.append({"text": "要开一局吗？带上我一起给你加油吧。", "emoji": "🎮"})
+		"听歌或看视频":
+			lines.append({"text": "现在的声音听起来很适合一起放松呢。", "emoji": "🎵"})
+	return lines
+
+
+func _debug_log(message: String) -> void:
+	if OS.is_debug_build():
+		var line := "[%s] %s" % [Time.get_time_string_from_system(), message]
+		print("[Proactive] " + message)
+		var debug_file := FileAccess.open(DEBUG_LOG_PATH, FileAccess.READ_WRITE)
+		if debug_file:
+			debug_file.seek_end()
+			debug_file.store_line(line)
 
 
 func _parse_thought(content: String) -> Dictionary:
@@ -333,6 +500,10 @@ func _was_recently_said(text: String) -> bool:
 
 
 func _schedule_initial_thought() -> void:
+	var base_seconds := _frequency_minutes * 60.0
+	if base_seconds <= 30.0:
+		_time_until_thought = _rng.randf_range(base_seconds * 0.75, base_seconds * 1.25)
+		return
 	_time_until_thought = _rng.randf_range(INITIAL_DELAY_MIN, INITIAL_DELAY_MAX)
 
 

@@ -204,7 +204,12 @@ func _refresh_controls() -> void:
 	_style_toggle(_quiet_hours_toggle, _quiet_hours_toggle.button_pressed)
 	_frequency_slider.set_value_no_signal(_companion.get_frequency_minutes())
 	_frequency_label.text = "平均约 " + _format_interval(_companion.get_frequency_minutes())
-	_memory_status.text = "已记住 %d 条最近片段" % _companion.get_memory_count()
+	var last_spoke_at := _companion.get_last_spoke_at()
+	if last_spoke_at > 0.0:
+		var last_time := Time.get_datetime_dict_from_unix_time(int(last_spoke_at))
+		_memory_status.text = "记忆 %d 条 · 最近 %02d:%02d" % [_companion.get_memory_count(), int(last_time.get("hour", 0)), int(last_time.get("minute", 0))]
+	else:
+		_memory_status.text = "已记住 %d 条最近片段" % _companion.get_memory_count()
 	_update_app_status(_monitor.get_current_info() if _monitor else {})
 
 

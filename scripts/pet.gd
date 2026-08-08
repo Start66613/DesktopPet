@@ -326,7 +326,7 @@ func _on_ai_assistant_replied(text: String) -> void:
 
 
 func _on_proactive_message(text: String, emoji: String) -> void:
-	_show_bubble(text, 5.0, emoji)
+	_show_bubble(text, 8.0, emoji)
 
 
 func _describe_care_interaction(result: Dictionary) -> String:
