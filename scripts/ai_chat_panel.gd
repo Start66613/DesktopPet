@@ -104,9 +104,10 @@ func _ready() -> void:
 
 
 func open_at(screen_position: Vector2i) -> void:
-	_restore_native_window(screen_position)
+	position = screen_position
 	_prepare_open_animation()
 	show()
+	_restore_native_window(screen_position)
 	call_deferred("_restore_native_window", screen_position)
 	grab_focus()
 	call_deferred("_bring_to_front")
