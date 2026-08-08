@@ -13,10 +13,10 @@ const STAT_KEYS := [&"fullness", &"hydration", &"mood", &"affection", &"energy"]
 
 const ITEM_CATALOG := {
 	"meal": [
-		{"name": "樱桃布丁", "icon": "res://assets/care/runtime/items/pudding.png", "emoji": "🍮", "message": "布丁甜甜的，心情也变好啦 (*^▽^*)", "changes": {"fullness": 16.0, "mood": 4.0, "affection": 1.0}},
-		{"name": "草莓蛋糕", "icon": "res://assets/care/runtime/items/strawberry_cake.png", "emoji": "🍰", "message": "草莓蛋糕！这一口分你一半 (≧▽≦)", "changes": {"fullness": 18.0, "mood": 7.0, "affection": 2.0}},
+		{"name": "樱桃布丁", "icon": "res://assets/care/runtime/items/pudding.png", "emoji": "🍮", "message": "布丁甜甜的，心情也变好啦 (*^_^*)", "changes": {"fullness": 16.0, "mood": 4.0, "affection": 1.0}},
+		{"name": "草莓蛋糕", "icon": "res://assets/care/runtime/items/strawberry_cake.png", "emoji": "🍰", "message": "草莓蛋糕！这一口分你一半 (^o^)", "changes": {"fullness": 18.0, "mood": 7.0, "affection": 2.0}},
 		{"name": "爱心三明治", "icon": "res://assets/care/runtime/items/sandwich.png", "emoji": "🥪", "message": "吃饱啦，接下来也有精神陪你！", "changes": {"fullness": 24.0, "mood": 2.0, "affection": 1.0}},
-		{"name": "爱心饭团", "icon": "res://assets/care/runtime/items/rice_ball.png", "emoji": "🍙", "message": "饭团软乎乎的，好满足呀 (´▽｀)", "changes": {"fullness": 28.0, "mood": 3.0, "affection": 1.0}},
+		{"name": "爱心饭团", "icon": "res://assets/care/runtime/items/rice_ball.png", "emoji": "🍙", "message": "饭团软乎乎的，好满足呀 (^_^)", "changes": {"fullness": 28.0, "mood": 3.0, "affection": 1.0}},
 		{"name": "蛋包饭", "icon": "res://assets/care/runtime/items/omurice.png", "emoji": "🍳", "message": "是热乎乎的蛋包饭！我会好好吃完的。", "changes": {"fullness": 34.0, "mood": 5.0, "affection": 2.0}}
 	],
 	"drink": [
@@ -32,7 +32,7 @@ const ITEM_CATALOG := {
 		{"name": "掌机对战", "icon": "res://assets/care/runtime/items/handheld_game.png", "emoji": "🎮", "message": "再来一局！这次我一定能赢你 (>_<)", "changes": {"mood": 20.0, "energy": -7.0, "hydration": -2.0, "affection": 3.0}, "activity": "handheld"},
 		{"name": "一起画画", "icon": "res://assets/care/runtime/items/sketchbook.png", "emoji": "🎨", "message": "我把今天画下来啦，旁边这个就是你。", "changes": {"mood": 17.0, "energy": -5.0, "affection": 3.0}},
 		{"name": "故事时间", "icon": "res://assets/care/runtime/items/storybook.png", "emoji": "📖", "message": "再读一页嘛，我还不想让故事结束。", "changes": {"mood": 13.0, "energy": -2.0, "affection": 3.0}},
-		{"name": "羽毛球", "icon": "res://assets/care/runtime/items/badminton.png", "emoji": "🏸", "message": "看我的挥拍！陪我打一个回合吧 (ง •̀_•́)ง", "changes": {"mood": 18.0, "energy": -6.0, "affection": 3.0}, "activity": "badminton"}
+		{"name": "羽毛球", "icon": "res://assets/care/runtime/items/badminton.png", "emoji": "🏸", "message": "看我的挥拍！陪我多打几个回合吧 (>_<)", "changes": {"mood": 18.0, "energy": -6.0, "affection": 3.0}, "activity": "badminton"}
 	],
 	"gift": [
 		{"name": "玫瑰花束", "icon": "res://assets/care/runtime/items/flower_bouquet.png", "emoji": "💐", "message": "送给我的吗？我会好好珍惜的……", "changes": {"mood": 13.0, "affection": 8.0}},

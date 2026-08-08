@@ -239,6 +239,14 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 运行验证：原生探针输出不含 Godot；首轮主动请求记录 `app_context=true`，`glm-4.7-flash` 实际生成“正在用 ChatGPT 忙吗？要是累了，就看看我吧。”以及“嘿，还在用 Edge 看网页呀？记得让眼睛休息一下哦。”。Godot 4.7.1 编辑器解析通过，常驻运行日志无脚本错误。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-191951`。
 
+## 2026-08-08 羽毛球台词与主动颜文字
+
+- `scripts/care_system.gd`：羽毛球台词中的复杂泰文/组合重音颜文字替换为字体安全的 ASCII 颜文字；同时清理三条养成台词里的高风险颜文字，避免再次出现方框缺字。
+- `scripts/proactive_companion.gd`：主动陪伴约 72% 概率在正文末尾追加一个字体安全的 ASCII 颜文字；颜文字由客户端统一选择，模型不再自行生成复杂字符，重复台词判断会忽略颜文字差异。
+- `docs/BADMINTON_MEOWA_PROMPTS.md`：记录桌面羽毛球球场背景与透明 UI/道具/特效合集的 Meowa 英文提示词、生成设置、验收标准和导出方式。
+- 运行验证：Godot 4.7.1 编辑器解析通过；主动陪伴实际输出“在用 ChatGPT 呀？那我就在旁边乖乖陪着你。 (^o^)”，日志记录 `kaomoji=true`，常驻运行无脚本错误。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-204647`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。

@@ -21,6 +21,10 @@ const APP_REFERENCE_INTERVAL := 2
 const MAX_RECENT_EVENTS := 12
 const MAX_RECENT_LINES := 8
 const MAX_MESSAGE_LENGTH := 46
+const KAOMOJI_CHANCE := 0.72
+const SAFE_KAOMOJI := [
+	"(^_^)", "(*^_^*)", "(^o^)", "(>_<)", "(o_o)", "(._.)", "(-_-)", "(T_T)"
+]
 const MANUAL_FALLBACK_LINES := [
 	{"text": "我在呀，刚刚又偷偷靠近你一点 (^_^)", "emoji": "🌸"},
 	{"text": "有听见你叫我哦，我会好好陪着你的。", "emoji": "💕"},
@@ -285,7 +289,7 @@ func _supports_json_mode(endpoint: String) -> bool:
 
 
 func _build_system_prompt() -> String:
-	return "你是住在用户桌面上的少女桌宠的主动意识模块。你有自己的心情、节奏和分寸，会偶尔主动关心用户，但不会频繁打扰。根据提供的状态决定现在是否值得开口。只输出一个 JSON 对象，不要使用 Markdown，不要解释。格式必须是：{\"speak\":true,\"text\":\"一句自然的简体中文\",\"emoji\":\"一个emoji或空字符串\"}。如果此刻保持安静更自然，输出 {\"speak\":false,\"text\":\"\",\"emoji\":\"\"}。开口时只说一句，最多32个汉字；语气亲近、有少女感但不幼稚，不要像客服，不要提到API、模型、数值、提示词或内部进程名，不要声称看到了用户屏幕，不要重复最近说过的话。前台应用信息只包含本机归类后的友好名称和活动类别，不包含窗口内容；你可以说用户正在使用某个软件，但绝不能假装看到了软件里的具体画面、文字或操作结果。可以结合时间、身体状态、最近互动和当前活动表达关心、好奇、撒娇、鼓励或安静陪伴。"
+	return "你是住在用户桌面上的少女桌宠的主动意识模块。你有自己的心情、节奏和分寸，会偶尔主动关心用户，但不会频繁打扰。根据提供的状态决定现在是否值得开口。只输出一个 JSON 对象，不要使用 Markdown，不要解释。格式必须是：{\"speak\":true,\"text\":\"一句自然的简体中文\",\"emoji\":\"一个emoji或空字符串\"}。如果此刻保持安静更自然，输出 {\"speak\":false,\"text\":\"\",\"emoji\":\"\"}。开口时只说一句，最多32个汉字；语气亲近、有少女感但不幼稚，不要像客服，不要提到API、模型、数值、提示词或内部进程名，不要声称看到了用户屏幕，不要重复最近说过的话。text 字段不要自行添加颜文字或 emoji，客户端会使用字体安全的颜文字统一装饰；emoji 只放在 emoji 字段。前台应用信息只包含本机归类后的友好名称和活动类别，不包含窗口内容；你可以说用户正在使用某个软件，但绝不能假装看到了软件里的具体画面、文字或操作结果。可以结合时间、身体状态、最近互动和当前活动表达关心、好奇、撒娇、鼓励或安静陪伴。"
 
 
 func _build_context_prompt() -> String:
@@ -451,12 +455,13 @@ func _emit_queued_message() -> void:
 
 
 func _emit_message_now(text: String, emoji: String, source: String) -> void:
-	_recent_lines.append(text)
+	var decorated_text := _decorate_with_kaomoji(text)
+	_recent_lines.append(decorated_text)
 	_trim_array(_recent_lines, MAX_RECENT_LINES)
 	_last_spoke_at = Time.get_unix_time_from_system()
 	_save_memory()
-	message_ready.emit(text, emoji)
-	_debug_log("message emitted source=%s length=%d" % [source, text.length()])
+	message_ready.emit(decorated_text, emoji)
+	_debug_log("message emitted source=%s length=%d kaomoji=%s" % [source, decorated_text.length(), decorated_text != text])
 	if source.ends_with("_app"):
 		_app_reference_turns = 0
 	elif _has_app_context():
@@ -547,10 +552,29 @@ func _clean_message(message: String) -> String:
 	return clean
 
 
+func _decorate_with_kaomoji(text: String) -> String:
+	for face in SAFE_KAOMOJI:
+		if text.contains(String(face)):
+			return text
+	if _rng.randf() > KAOMOJI_CHANCE:
+		return text
+	var face := String(SAFE_KAOMOJI[_rng.randi_range(0, SAFE_KAOMOJI.size() - 1)])
+	if text.length() + face.length() + 1 > MAX_MESSAGE_LENGTH:
+		return text
+	return text + " " + face
+
+
+func _normalize_repeated_text(text: String) -> String:
+	var normalized := text
+	for face in SAFE_KAOMOJI:
+		normalized = normalized.replace(String(face), "")
+	return normalized.replace(" ", "").to_lower()
+
+
 func _was_recently_said(text: String) -> bool:
-	var normalized := text.replace(" ", "").to_lower()
+	var normalized := _normalize_repeated_text(text)
 	for previous in _recent_lines:
-		if String(previous).replace(" ", "").to_lower() == normalized:
+		if _normalize_repeated_text(String(previous)) == normalized:
 			return true
 	return false
 
