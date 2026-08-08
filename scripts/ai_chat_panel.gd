@@ -6,12 +6,16 @@ signal assistant_replied(text: String)
 const CONFIG_PATH := "user://ai_chat.cfg"
 const HISTORY_PATH := "user://ai_chat_history.json"
 const CHAT_UI_DIR := "res://assets/chat/runtime/ui"
+const CHAT_PANEL_TEXTURE := CHAT_UI_DIR + "/chat_panel_runtime.png"
 const BASE_SIZE := Vector2(961, 1378)
 const UI_SCALE := 0.53
 const PANEL_SIZE := Vector2i(510, 731)
 const MAX_HISTORY_MESSAGES := 30
 const REQUEST_HISTORY_MESSAGES := 14
 const MESSAGE_FONT_SIZE := 25
+const HEART_TRACK_TOP := 188.0
+const HEART_TRACK_BOTTOM := 1110.0
+const HEART_THUMB_SIZE := Vector2(74, 74)
 
 const PROVIDER_PRESETS := [
 	{
@@ -23,6 +27,11 @@ const PROVIDER_PRESETS := [
 		"name": "DeepSeek",
 		"endpoint": "https://api.deepseek.com/chat/completions",
 		"model": "deepseek-chat"
+	},
+	{
+		"name": "GLM",
+		"endpoint": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+		"model": "glm-4.7-flash"
 	},
 	{
 		"name": "硅基流动",
@@ -46,6 +55,8 @@ var _send_button: Button
 var _status_label: Label
 var _request: HTTPRequest
 var _typing_row: Control
+var _heart_thumb: TextureRect
+var _heart_tween: Tween
 var _settings_overlay: Control
 var _provider_option: OptionButton
 var _endpoint_input: LineEdit
@@ -93,11 +104,10 @@ func _ready() -> void:
 
 
 func open_at(screen_position: Vector2i) -> void:
-	position = screen_position
-	mode = Window.MODE_WINDOWED
+	_restore_native_window(screen_position)
 	_prepare_open_animation()
 	show()
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
+	call_deferred("_restore_native_window", screen_position)
 	grab_focus()
 	call_deferred("_bring_to_front")
 	_play_open_animation()
@@ -116,6 +126,16 @@ func _bring_to_front() -> void:
 		grab_focus()
 
 
+func _restore_native_window(screen_position: Vector2i) -> void:
+	mode = Window.MODE_WINDOWED
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED, get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
+	get_viewport().transparent_bg = true
+	DisplayServer.window_set_position(screen_position, get_window_id())
+	if _root:
+		_root.visible = true
+
+
 func _build_ui() -> void:
 	_root = Control.new()
 	_root.size = BASE_SIZE
@@ -123,7 +143,7 @@ func _build_ui() -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_root)
 
-	var background := _make_texture_rect(CHAT_UI_DIR + "/chat_panel.png", Vector2.ZERO, BASE_SIZE)
+	var background := _make_texture_rect(CHAT_PANEL_TEXTURE, Vector2.ZERO, BASE_SIZE)
 	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(background)
 
@@ -178,6 +198,8 @@ func _build_ui() -> void:
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	_root.add_child(_scroll)
+	_scroll.get_v_scroll_bar().value_changed.connect(_on_chat_scroll_changed)
+	_build_scroll_indicator()
 
 	_messages = VBoxContainer.new()
 	_messages.custom_minimum_size = Vector2(815, 0)
@@ -187,8 +209,8 @@ func _build_ui() -> void:
 	_scroll.get_v_scroll_bar().modulate.a = 0.0
 
 	_input = TextEdit.new()
-	_input.position = Vector2(112, 1184)
-	_input.size = Vector2(622, 94)
+	_input.position = Vector2(170, 1184)
+	_input.size = Vector2(564, 94)
 	_input.placeholder_text = "想和她说点什么……"
 	_input.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	_input.scroll_fit_content_height = false
@@ -213,6 +235,33 @@ func _build_ui() -> void:
 	add_child(_request)
 
 	_build_settings_overlay()
+
+
+func _build_scroll_indicator() -> void:
+	_heart_thumb = TextureRect.new()
+	_heart_thumb.position = Vector2(851, HEART_TRACK_TOP)
+	_heart_thumb.size = HEART_THUMB_SIZE
+	_heart_thumb.texture = load("res://assets/care/runtime/effects/affection.png") as Texture2D
+	_heart_thumb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_heart_thumb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_heart_thumb.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_heart_thumb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_heart_thumb.pivot_offset = HEART_THUMB_SIZE * 0.5
+	_root.add_child(_heart_thumb)
+	call_deferred("_on_chat_scroll_changed", 0.0)
+
+
+func _on_chat_scroll_changed(value: float) -> void:
+	if not _heart_thumb or not is_instance_valid(_heart_thumb):
+		return
+	var max_value := _scroll.get_v_scroll_bar().max_value if _scroll else 0.0
+	var ratio := 0.0 if max_value <= 0.0 else clampf(value / max_value, 0.0, 1.0)
+	var travel := HEART_TRACK_BOTTOM - HEART_TRACK_TOP - HEART_THUMB_SIZE.y
+	var target := Vector2(851, HEART_TRACK_TOP + travel * ratio)
+	if _heart_tween and _heart_tween.is_valid():
+		_heart_tween.kill()
+	_heart_tween = create_tween()
+	_heart_tween.tween_property(_heart_thumb, "position", target, 0.12).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
 func _build_settings_overlay() -> void:
@@ -302,7 +351,13 @@ func _build_settings_overlay() -> void:
 	_settings_overlay.add_child(_remember_key)
 
 	_settings_status = Label.new()
-	_settings_status.position = Vector2(210, 842)
+	var clear_button := _make_text_button("清空聊天记录", Vector2(300, 830), Vector2(360, 58), false)
+	clear_button.tooltip_text = "清空当前聊天记录"
+	clear_button.pressed.connect(_clear_chat_history)
+	_settings_overlay.add_child(clear_button)
+	_bind_button_motion(clear_button, 1.03, -1.0)
+
+	_settings_status.position = Vector2(210, 895)
 	_settings_status.size = Vector2(540, 36)
 	_settings_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_settings_status.add_theme_font_size_override("font_size", 18)
@@ -310,12 +365,12 @@ func _build_settings_overlay() -> void:
 	_apply_font(_settings_status)
 	_settings_overlay.add_child(_settings_status)
 
-	var cancel_button := _make_text_button("返回", Vector2(235, 900), Vector2(210, 72), false)
+	var cancel_button := _make_text_button("返回", Vector2(235, 940), Vector2(210, 72), false)
 	cancel_button.pressed.connect(_hide_settings)
 	_settings_overlay.add_child(cancel_button)
 	_bind_button_motion(cancel_button, 1.04, -1.5)
 
-	var save_button := _make_text_button("保存", Vector2(516, 900), Vector2(210, 72), true)
+	var save_button := _make_text_button("保存", Vector2(516, 940), Vector2(210, 72), true)
 	save_button.pressed.connect(_save_settings)
 	_settings_overlay.add_child(save_button)
 	_bind_button_motion(save_button, 1.04, 1.5)
@@ -408,6 +463,19 @@ func _show_settings() -> void:
 
 func _hide_settings() -> void:
 	_settings_overlay.visible = false
+
+
+func _clear_chat_history() -> void:
+	if _request_pending:
+		_settings_status.text = "先等我把这条消息说完嘛～"
+		return
+	_history.clear()
+	_save_history()
+	for child in _messages.get_children():
+		_messages.remove_child(child)
+		child.queue_free()
+	_add_message("assistant", "好啦，聊天记录已经清空了，我们重新开始吧 (｡･ω･｡)ﾉ♡", false)
+	_settings_status.text = "聊天记录已经清空啦"
 
 
 func _on_provider_selected(index: int) -> void:
@@ -522,7 +590,7 @@ func _send_current_message() -> void:
 	])
 	var error := _request.request(_endpoint, headers, HTTPClient.METHOD_POST, JSON.stringify(payload))
 	if error != OK:
-		_finish_with_error("请求没有发出去：" + error_string(error))
+		_finish_with_error(_friendly_error_message(0, error_string(error)))
 
 
 func _build_system_prompt() -> String:
@@ -541,7 +609,7 @@ func _build_system_prompt() -> String:
 
 func _on_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if result != HTTPRequest.RESULT_SUCCESS:
-		_finish_with_error("网络请求失败，请检查连接后重试")
+		_finish_with_error(_friendly_error_message(0, "network"))
 		return
 
 	var body_text := body.get_string_from_utf8()
@@ -552,29 +620,46 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 			var error_data = parsed.get("error", {})
 			if error_data is Dictionary and not String(error_data.get("message", "")).is_empty():
 				api_error = String(error_data.get("message", api_error))
-		_finish_with_error(api_error)
+		_finish_with_error(_friendly_error_message(response_code, api_error))
 		return
 	if not parsed is Dictionary:
-		_finish_with_error("API 返回了无法识别的数据")
+		_finish_with_error(_friendly_error_message(response_code, "invalid response"))
 		return
 
 	var choices = parsed.get("choices", [])
 	if not choices is Array or choices.is_empty() or not choices[0] is Dictionary:
-		_finish_with_error("API 返回中没有回复内容")
+		_finish_with_error(_friendly_error_message(response_code, "empty response"))
 		return
 	var message_data = choices[0].get("message", {})
 	if not message_data is Dictionary:
-		_finish_with_error("API 回复格式不兼容")
+		_finish_with_error(_friendly_error_message(response_code, "incompatible response"))
 		return
 	var content := String(message_data.get("content", "")).strip_edges()
 	if content.is_empty():
-		_finish_with_error("她想了想，却没有说出话来")
+		_finish_with_error(_friendly_error_message(response_code, "empty content"))
 		return
 
 	_hide_typing()
 	_set_request_pending(false)
 	_add_message("assistant", content, true)
 	assistant_replied.emit(content)
+
+
+func _friendly_error_message(response_code: int, detail: String) -> String:
+	var normalized := detail.to_lower()
+	if response_code == 401 or normalized.contains("401") or normalized.contains("unauthorized") or normalized.contains("authentication"):
+		return "呜……我好像没认出这把钥匙，检查一下 API Key 好吗？"
+	if response_code == 403 or normalized.contains("403") or normalized.contains("forbidden") or normalized.contains("permission"):
+		return "唔……这个模型暂时不让我进去，检查一下模型权限好吗？"
+	if response_code == 404 or normalized.contains("404") or normalized.contains("not found"):
+		return "呀，我找不到这个模型的房间啦，检查一下接口地址和模型名吧～"
+	if response_code == 429 or normalized.contains("429") or normalized.contains("rate") or normalized.contains("quota") or normalized.contains("busy"):
+		return "我现在有点忙哦，等一下再找我说话吧～"
+	if response_code >= 500:
+		return "服务器好像打了个盹，我也没收到回复，再试一次好不好？"
+	if response_code == 0:
+		return "呜呜，连接好像断了一下，检查网络后再试试吧～"
+	return "唔……刚才连接出了点小问题，我们再试一次好不好？"
 
 
 func _finish_with_error(message: String) -> void:
@@ -626,36 +711,44 @@ func _add_message(role: String, text: String, store_message: bool) -> void:
 
 	var measured_width := float(clean_text.length()) * float(MESSAGE_FONT_SIZE) * 0.92
 	if _font:
-		measured_width = _font.get_string_size(clean_text, HORIZONTAL_ALIGNMENT_LEFT, -1, MESSAGE_FONT_SIZE).x
-	var bubble_width := clampf(measured_width + 112.0, 285.0, 700.0)
-	var content_width := bubble_width - 104.0
+		measured_width = 0.0
+		for paragraph in clean_text.split("\n"):
+			measured_width = maxf(measured_width, _font.get_string_size(String(paragraph), HORIZONTAL_ALIGNMENT_LEFT, -1, MESSAGE_FONT_SIZE).x)
+	var is_assistant := role == "assistant"
+	# The flower and tail are part of the generated bubble textures, so keep
+	# their visual zones empty instead of letting text flow underneath them.
+	var insets := Vector4(136.0, 68.0, 76.0, 64.0) if is_assistant else Vector4(52.0, 42.0, 94.0, 58.0)
+	var max_content_width := 555.0 if is_assistant else 555.0
+	var content_width := clampf(measured_width + 22.0, 190.0, max_content_width)
+	var bubble_width := content_width + insets.x + insets.z
 	var line_chars := maxi(int(content_width / (float(MESSAGE_FONT_SIZE) * 1.02)), 1)
 	var line_count := 0
 	for paragraph in clean_text.split("\n"):
 		line_count += maxi(ceili(float(String(paragraph).length()) / float(line_chars)), 1)
-	var bubble_height := maxf(104.0, 56.0 + float(line_count) * 34.0)
+	var bubble_height := maxf(142.0, insets.y + float(line_count) * 36.0 + insets.w)
 
 	var row := Control.new()
 	row.custom_minimum_size = Vector2(815, bubble_height + 6.0)
 	var bubble := NinePatchRect.new()
 	bubble.size = Vector2(bubble_width, bubble_height)
-	bubble.position.x = 0.0 if role == "assistant" else 815.0 - bubble_width
+	bubble.position.x = 0.0 if is_assistant else 815.0 - bubble_width
 	bubble.texture = load(CHAT_UI_DIR + ("/assistant_bubble.png" if role == "assistant" else "/user_bubble.png")) as Texture2D
-	bubble.set_patch_margin(SIDE_LEFT, 72)
-	bubble.set_patch_margin(SIDE_TOP, 62)
-	bubble.set_patch_margin(SIDE_RIGHT, 72)
-	bubble.set_patch_margin(SIDE_BOTTOM, 72)
+	bubble.set_patch_margin(SIDE_LEFT, 136 if is_assistant else 52)
+	bubble.set_patch_margin(SIDE_TOP, 62 if is_assistant else 42)
+	bubble.set_patch_margin(SIDE_RIGHT, 76 if is_assistant else 94)
+	bubble.set_patch_margin(SIDE_BOTTOM, 70 if is_assistant else 58)
 	bubble.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	bubble.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(bubble)
 
 	var label := Label.new()
-	label.position = Vector2(48, 25)
-	label.size = Vector2(content_width, bubble_height - 52.0)
+	label.position = Vector2(insets.x, insets.y)
+	label.size = Vector2(content_width, bubble_height - insets.y - insets.w)
 	label.text = clean_text
 	label.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.clip_text = true
 	label.add_theme_font_size_override("font_size", MESSAGE_FONT_SIZE)
 	label.add_theme_color_override("font_color", Color("5e414a"))
 	label.add_theme_constant_override("line_spacing", 5)
