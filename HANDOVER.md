@@ -291,3 +291,18 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `scripts/badminton_game_panel.gd`：花边层位于球场角色上方、HUD 与弹窗下方，既能压住场景边缘又不会遮挡比分、暂停/关闭按钮和操作文字；原生外沿由 12px 双线框缩为 8px 单线粉边。
 - `scripts/speech_bubble.gd`：所有普通互动与主动陪伴气泡显示前先建立完整可点击区域，再用 0.20 秒淡入和 0.24 秒的 96%→100% 轻弹呈现；隐藏仍即时完成，避免透明残影继续拦截鼠标。
 - 视觉 QA：`logs/badminton_floral_frame_live.png`、`logs/bubble_fade_mid_qa_v2.png` 和 `logs/bubble_fade_complete_qa_v2.png`；Godot 4.7.1 导入和脚本解析通过，运行日志无错误。
+
+## 2026-08-09 羽毛球外置花边与小狗系统素材规划
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260809-001916`；源项目与备份均为 `3078` 个文件、`196770231` 字节。
+- `scripts/badminton_game_panel.gd`：游戏内容继续保持 `960x720`，原生窗口使用 `54px` 外部装饰空间；原先压在球场内部的花边已替换为窗口最外侧的上下装饰层，球场内不再夹入大面积装饰底板。
+- `assets/minigames/badminton/runtime/ui/window_outer_floral_frame.png`：上下蕾丝和爱心花边增加奶白不透明衬底，避免透明窗口位于深色桌面时把蕾丝孔洞显示成黑色；中央球场区域仍透明。
+- `scripts/pet.gd`：打开扩大后的羽毛球窗口时增加工作区边界钳制，防止窗口在小屏幕或任务栏附近越界。
+- `docs/DOG_SYSTEM_MEOWA_PROMPTS.md`：新增白色线条小狗的身份参考、五方向、首批动作、淡蓝 UI、家具道具与反馈特效的英文提示词和低额度生成顺序；同时记录巨龙骑乘彩蛋的右向飞行参考图提示词。
+- 运行验证：Godot 4.7.1 重新导入和脚本解析通过；真实窗口下完成开始比赛、球拍跟随、暂停、外框拖动和关闭恢复检查。视觉 QA 见 `logs/badminton_outer_frame_final_live.png`、`logs/badminton_outer_frame_gameplay_live.png` 和 `logs/badminton_outer_frame_pause_live.png`。
+
+## 2026-08-09 羽毛球窗口回退
+
+- 按用户要求将 `scripts/badminton_game_panel.gd` 精确恢复为 `DesktopPet_backup_20260808-232125` 中的版本，即两次花边实验之前的 `960x720` 球场与 `12px` 奶油粉双层边框。
+- 删除不再使用的 `window_outer_floral_frame.png`；用户版羽毛球 BGM、九个音效、玩法逻辑、计分板定位和设置窗口按钮修复均保留。
+- Godot 4.7.1 导入检查退出码为 0；实际窗口尺寸恢复为 `984x744`，视觉 QA 见 `logs/badminton_rollback_live.png`。

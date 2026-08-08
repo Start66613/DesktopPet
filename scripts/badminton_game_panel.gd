@@ -6,7 +6,7 @@ signal game_finished(player_won: bool, best_rally: int)
 signal game_closed
 
 const GAME_SIZE := Vector2i(960, 720)
-const FRAME_WIDTH := 8
+const FRAME_WIDTH := 12
 const WINDOW_SIZE := GAME_SIZE + Vector2i(FRAME_WIDTH * 2, FRAME_WIDTH * 2)
 const CONTENT_OFFSET := Vector2(FRAME_WIDTH, FRAME_WIDTH)
 const ASSET_DIR := "res://assets/minigames/badminton/runtime"
@@ -225,11 +225,6 @@ func _build_ui() -> void:
 	_effect_layer.name = "EffectLayer"
 	_root.add_child(_effect_layer)
 	_build_play_sprites()
-
-	var court_frame := _make_texture_rect(_root, "court_floral_frame.png", Vector2.ZERO, Vector2(GAME_SIZE))
-	court_frame.name = "CourtFloralFrame"
-	court_frame.stretch_mode = TextureRect.STRETCH_SCALE
-	court_frame.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 
 	_hud = Control.new()
 	_hud.name = "HUD"
@@ -808,7 +803,7 @@ func _build_window_frame() -> void:
 	var frame_background := ColorRect.new()
 	frame_background.name = "WindowFrame"
 	frame_background.size = Vector2(WINDOW_SIZE)
-	frame_background.color = Color("f7dce1")
+	frame_background.color = Color("fbe9e4")
 	frame_background.mouse_filter = Control.MOUSE_FILTER_STOP
 	frame_background.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	frame_background.gui_input.connect(_on_frame_gui_input)
@@ -817,14 +812,26 @@ func _build_window_frame() -> void:
 	var outer_style := StyleBoxFlat.new()
 	outer_style.bg_color = Color.TRANSPARENT
 	outer_style.border_color = Color("d98f9d")
-	outer_style.set_border_width_all(2)
-	outer_style.set_corner_radius_all(5)
+	outer_style.set_border_width_all(3)
+	outer_style.set_corner_radius_all(7)
 	var outer_border := Panel.new()
 	outer_border.position = Vector2(2, 2)
 	outer_border.size = Vector2(WINDOW_SIZE) - Vector2(4, 4)
 	outer_border.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	outer_border.add_theme_stylebox_override("panel", outer_style)
 	frame_background.add_child(outer_border)
+
+	var inner_style := StyleBoxFlat.new()
+	inner_style.bg_color = Color.TRANSPARENT
+	inner_style.border_color = Color("fff8f0")
+	inner_style.set_border_width_all(2)
+	inner_style.set_corner_radius_all(5)
+	var inner_border := Panel.new()
+	inner_border.position = Vector2(7, 7)
+	inner_border.size = Vector2(WINDOW_SIZE) - Vector2(14, 14)
+	inner_border.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	inner_border.add_theme_stylebox_override("panel", inner_style)
+	frame_background.add_child(inner_border)
 
 
 func _build_audio() -> void:

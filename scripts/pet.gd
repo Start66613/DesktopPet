@@ -383,6 +383,8 @@ func _open_badminton_game() -> void:
 			DisplayServer.window_set_position(_pet_position_beside_badminton)
 			_window_position = Vector2(_pet_position_beside_badminton)
 			_badminton_position_saved = true
+	panel_position.x = clampi(panel_position.x, usable.position.x, usable.end.x - panel_size.x)
+	panel_position.y = clampi(panel_position.y, usable.position.y, usable.end.y - panel_size.y)
 	_badminton_game.open_at(panel_position)
 
 
