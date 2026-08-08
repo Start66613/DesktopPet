@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="SpriteFrames" path="1786173335473-81wvsizc4oa_frames.tres" id="1_frames"]
+
+[node name="178617333547381wvsizc4oa" type="AnimatedSprite2D"]
+texture_filter = 1
+sprite_frames = ExtResource("1_frames")
+animation = &"打游戏"
+autoplay = "打游戏"
+centered = false

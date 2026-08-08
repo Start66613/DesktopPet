@@ -204,11 +204,23 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 ## 2026-08-08 主动陪伴系统 1.0
 
 - `scripts/proactive_companion.gd`：新增独立主动陪伴模块，复用聊天窗口保存的 OpenAI 兼容 API 配置；结合当前时间、养成数值、桌宠动作、最近互动与近期主动台词，允许 AI 自主判断开口或保持安静。
-- 首次主动思考延迟约 65～105 秒，之后正常间隔约 5～10 分钟；接口失败时静默退避，不向用户显示技术报错，也不会在睡觉、起床、娱乐、拖拽、已有气泡或功能窗口打开时插话。
+- 首次主动思考延迟约 25～45 秒，之后按用户设置的表达频率调度；接口失败时静默退避，不向用户显示技术报错，也不会在睡觉、起床、娱乐、拖拽、已有气泡或功能窗口打开时插话。
 - 最近养成互动、成功 AI 对话与主动台词保存在 `user://companion_memory.json`；主动陪伴开关保存在 `user://companion_settings.cfg`。
 - `scripts/pet.gd`：喂食、喝水、娱乐、送礼、摸摸、休息和 AI 对话会进入短期互动记忆；旧固定台词间隔由 14～28 秒调整为 70～130 秒。
 - 右键菜单新增可勾选的“主动陪伴”，默认开启并持久化；关闭进行中的请求后不会补发过期气泡。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-142620`。
+
+## 2026-08-08 主动陪伴设置与活动扩展
+
+- `scripts/companion_settings_panel.gd`：新增独立可拖动陪伴设置窗口，包含主动陪伴、夜间安静、前台应用感知开关，5 秒测试/活泼/日常/安静四档预设，以及 5 秒至 10 分钟、1 秒步进的频率滑杆。
+- “现在来陪我”会立即发起一次强制开口的主动陪伴测试；低于 30 秒的测试频率下，AI 选择安静后也按当前短间隔继续测试，而接口失败仍保留静默退避，避免故障时频繁请求。
+- 设置面板使用缩放后的 Meowa 背景素材，但标题、状态、开关、预设和操作按钮文字改为原生像素尺寸绘制，减少整体缩放造成的文字发糊；窗口打开时有轻微弹出动画，不改变透明度。
+- `scripts/ai_chat_panel.gd`、`scripts/care_panel.gd` 和设置窗口均使用普通窗口层级（`always_on_top = false`）；只有桌宠主窗口保持置顶。当前窗口尺寸为聊天 `480x689`、养成 `520x555`、设置 `591x415`。
+- `scripts/foreground_app_monitor.gd` + `tools/foreground_app_probe.exe`：Windows 下通过 `GetForegroundWindow`/`EnumWindows` 读取前台进程名及最多 8 个有可见标题窗口的应用进程名，不读取或传递窗口标题、文档内容和屏幕画面；过滤桌宠自身、系统进程及 NVIDIA 浮层。
+- 进程探针由 `tools/foreground_app_probe.cs` 编译，大小约 7 KB；探针缺失时使用 `tasklist.exe` 粗略降级，运行期不再隐藏启动 PowerShell，避免触发系统安全拦截。
+- `assets/activities/music/` 与 `assets/activities/handheld/` 已导入；听歌约循环 22 秒、掌机对战约循环 24 秒、羽毛球约循环 13 秒，活动结束后回到待机。羽毛球使用用户新生成的独立图标。
+- 运行验证：Godot 4.7.1 编辑器解析通过，headless 运行约 1.9 秒退出；实际设置窗口识别到 `ChatGPT` 及 7 个可见应用，没有再出现 PowerShell 安全提示。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-160903`。
 
 ## 验证方法
 
