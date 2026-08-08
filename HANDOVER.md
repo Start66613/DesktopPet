@@ -283,3 +283,11 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `assets/minigames/badminton/runtime/audio/`：替换为用户版 BGM、UI 确认、发球、普通击球、完美击球、扣杀、双方得分及胜负音效；现有游戏逻辑和音量设置不变。
 - 新 BGM 实测 `136.960` 秒，九个音效均为 `1.000` 秒；`tools/badminton_audio_qa.gd` 验证全部可加载且 BGM 可开启循环。
 - 导入日志：`logs/badminton_user_audio_import.log`；自动检查日志：`logs/badminton_user_audio_qa.log`。需要恢复旧版时，从上述稳定版备份复制 `assets/minigames/badminton/runtime/audio/` 即可。
+
+## 2026-08-08 羽毛球花边框与气泡出场动效
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-232125`；源项目与备份均为 `3036` 个文件、`190715186` 字节。
+- `assets/minigames/badminton/runtime/ui/court_floral_frame.png`：从现有“她的日常”面板本地整理出的 `960x720` 透明花边层，保留顶部蕾丝、底部爱心花边与两角玫瑰，没有调用 Meowa。
+- `scripts/badminton_game_panel.gd`：花边层位于球场角色上方、HUD 与弹窗下方，既能压住场景边缘又不会遮挡比分、暂停/关闭按钮和操作文字；原生外沿由 12px 双线框缩为 8px 单线粉边。
+- `scripts/speech_bubble.gd`：所有普通互动与主动陪伴气泡显示前先建立完整可点击区域，再用 0.20 秒淡入和 0.24 秒的 96%→100% 轻弹呈现；隐藏仍即时完成，避免透明残影继续拦截鼠标。
+- 视觉 QA：`logs/badminton_floral_frame_live.png`、`logs/bubble_fade_mid_qa_v2.png` 和 `logs/bubble_fade_complete_qa_v2.png`；Godot 4.7.1 导入和脚本解析通过，运行日志无错误。

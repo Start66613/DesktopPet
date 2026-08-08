@@ -14,11 +14,15 @@ var _text := ""
 var _emoji := ""
 var _cjk_font: Font
 var _emoji_font: Font
+var _show_tween: Tween
 
 
 func _ready() -> void:
 	z_index = 1000
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	visible = false
+	modulate = Color.WHITE
+	scale = Vector2.ONE
 	queue_redraw()
 
 
@@ -31,13 +35,24 @@ func configure_fonts(cjk_font: Font, emoji_font: Font) -> void:
 func set_message(text: String, emoji: String) -> void:
 	_text = text
 	_emoji = emoji
+	if _show_tween and _show_tween.is_valid():
+		_show_tween.kill()
 	visible = true
+	modulate = Color(1.0, 1.0, 1.0, 0.0)
+	scale = Vector2.ONE * 0.96
 	queue_redraw()
+	_show_tween = create_tween().set_parallel(true)
+	_show_tween.tween_property(self, "modulate:a", 1.0, 0.20).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_show_tween.tween_property(self, "scale", Vector2.ONE, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func clear_message() -> void:
+	if _show_tween and _show_tween.is_valid():
+		_show_tween.kill()
 	_text = ""
 	_emoji = ""
+	modulate = Color.WHITE
+	scale = Vector2.ONE
 	visible = false
 	queue_redraw()
 
