@@ -275,3 +275,11 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `docs/BADMINTON_AUDIO_MEOWA_PROMPTS.md`：记录本次英文提示词、Meowa 音乐/音效包生成步骤、语义化文件名与验收标准；原始生成结果保留在 `outputs/meowa-badminton-audio-20260808/`。
 - `tools/badminton_audio_qa.gd`：自动检查 10 个运行时音频是否可加载、时长是否有效以及 MP3 循环标记；Godot 4.7.1 实测全部通过。
 - 运行验证：Godot 编辑器导入和脚本解析通过；真实比赛、暂停与恢复正常，`logs/badminton_audio_runtime.err.log` 无错误。最终画面见 `logs/badminton_audio_live.png` 与 `logs/badminton_audio_pause_live.png`。
+
+## 2026-08-08 用户生成羽毛球音频替换
+
+- 替换前完整稳定版备份：`D:\game creat\DesktopPet_backup_20260808-230433`；源项目与备份均为 `3021` 个文件、`189044917` 字节。
+- `assets/minigames/badminton/packages/audio_user_20260808/`：归档用户在 Meowa 中生成的 10 个中文原名 MP3，并使用 `.gdignore` 避免 Godot 重复导入归档副本。
+- `assets/minigames/badminton/runtime/audio/`：替换为用户版 BGM、UI 确认、发球、普通击球、完美击球、扣杀、双方得分及胜负音效；现有游戏逻辑和音量设置不变。
+- 新 BGM 实测 `136.960` 秒，九个音效均为 `1.000` 秒；`tools/badminton_audio_qa.gd` 验证全部可加载且 BGM 可开启循环。
+- 导入日志：`logs/badminton_user_audio_import.log`；自动检查日志：`logs/badminton_user_audio_qa.log`。需要恢复旧版时，从上述稳定版备份复制 `assets/minigames/badminton/runtime/audio/` 即可。

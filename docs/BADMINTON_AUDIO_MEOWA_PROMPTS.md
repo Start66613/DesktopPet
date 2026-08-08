@@ -33,7 +33,7 @@
 A three-minute loopable instrumental theme for a cute desktop badminton match in a pastel rose garden. Light and lively at about 118 BPM, with pizzicato strings, glockenspiel, soft marimba, airy flute, and gentle acoustic percussion. Keep the melody playful and warm rather than intense, with steady energy that will not distract during repeated rallies. Begin cleanly and end at a musically seamless loop point. No vocals or lyrics.
 ```
 
-当前成品约 `173.453` 秒，G Major，约 118 BPM。默认运行音量为 `-12 dB`，给击球音效留出了空间。
+当前用户生成版约 `136.960` 秒，默认运行音量为 `-12 dB`，给击球音效留出了空间。上一版约 `173.453` 秒的音乐和配套音效保存在 `D:\game creat\DesktopPet_backup_20260808-230433`，可随时整体或仅按 `runtime/audio` 目录恢复。
 
 ## 生成二：九件套音效
 
@@ -59,4 +59,4 @@ Create a coherent ordered pack of nine short sound effects for a cute pastel des
 - BGM 要比音效轻，连续播放时不能盖住击球反馈。
 - BGM 需要至少试听两次首尾衔接；若接缝明显，优先重新生成明确 loop point 的版本。
 
-本次原始 Meowa 输出保存在 `outputs/meowa-badminton-audio-20260808/`，运行时文件均来自对应 `final_outputs.json` 的最终媒体清单。
+第一版 Meowa 输出保存在 `outputs/meowa-badminton-audio-20260808/`。当前用户生成版的中文原文件保存在 `assets/minigames/badminton/packages/audio_user_20260808/`，运行时使用其语义化重命名副本。
