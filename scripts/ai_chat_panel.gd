@@ -113,7 +113,6 @@ func hide_panel() -> void:
 
 func _bring_to_front() -> void:
 	if visible:
-		move_to_foreground()
 		grab_focus()
 
 

@@ -196,6 +196,11 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 聊天 UI 底图已自带发送、最小化和关闭按钮，运行时改为只叠加透明点击热区，避免重复绘制造成按钮错位；设置按钮仍使用独立素材。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-021423`。
 
+## 2026-08-08 聊天窗口启动日志清理
+
+- `scripts/ai_chat_panel.gd`：移除 Godot 4.7 已弃用的 `move_to_foreground()` 调用，使用 `grab_focus()` 完成置前。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-021939`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。
