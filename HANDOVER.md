@@ -201,6 +201,15 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `scripts/ai_chat_panel.gd`：移除 Godot 4.7 已弃用的 `move_to_foreground()` 调用，使用 `grab_focus()` 完成置前。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-021939`。
 
+## 2026-08-08 主动陪伴系统 1.0
+
+- `scripts/proactive_companion.gd`：新增独立主动陪伴模块，复用聊天窗口保存的 OpenAI 兼容 API 配置；结合当前时间、养成数值、桌宠动作、最近互动与近期主动台词，允许 AI 自主判断开口或保持安静。
+- 首次主动思考延迟约 65～105 秒，之后正常间隔约 5～10 分钟；接口失败时静默退避，不向用户显示技术报错，也不会在睡觉、起床、娱乐、拖拽、已有气泡或功能窗口打开时插话。
+- 最近养成互动、成功 AI 对话与主动台词保存在 `user://companion_memory.json`；主动陪伴开关保存在 `user://companion_settings.cfg`。
+- `scripts/pet.gd`：喂食、喝水、娱乐、送礼、摸摸、休息和 AI 对话会进入短期互动记忆；旧固定台词间隔由 14～28 秒调整为 70～130 秒。
+- 右键菜单新增可勾选的“主动陪伴”，默认开启并持久化；关闭进行中的请求后不会补发过期气泡。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-142620`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。
