@@ -164,6 +164,17 @@ func apply_ai_chat_reward() -> void:
 	save_state()
 
 
+func apply_badminton_result(player_won: bool, best_rally: int) -> void:
+	var rally_bonus := clampf(float(best_rally) * 0.35, 0.0, 5.0)
+	var mood_reward := 4.0 + rally_bonus
+	var affection_reward := 2.0 if player_won else 1.0
+	if best_rally >= 8:
+		affection_reward += 1.0
+	_apply_changes({"mood": mood_reward, "affection": affection_reward})
+	stats_changed.emit(get_stats())
+	save_state()
+
+
 func save_state() -> void:
 	var config := ConfigFile.new()
 	for key in STAT_KEYS:

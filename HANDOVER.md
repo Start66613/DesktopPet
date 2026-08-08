@@ -247,6 +247,19 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 运行验证：Godot 4.7.1 编辑器解析通过；主动陪伴实际输出“在用 ChatGPT 呀？那我就在旁边乖乖陪着你。 (^o^)”，日志记录 `kaomoji=true`，常驻运行无脚本错误。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-204647`。
 
+## 2026-08-08 可玩桌面羽毛球小游戏
+
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-210824`。
+- `assets/minigames/badminton/packages/`：归档用户提供的球场与 UI/特效原始 ZIP；同目录保留完整 Meowa 导出源文件，`runtime/` 下整理为一张语义化球场图和 27 个运行时 UI/道具/特效 PNG。
+- `scripts/badminton_game_panel.gd`：新增独立 `960x720` 普通层级无边框游戏窗口，提供轻松/认真/挑战三档难度、鼠标跟随球拍、点击或快速挥动回击、透视飞行轨迹、落点提示、对手移动与回球、完美回击、扣杀蓄力、连击、先到 5 分、暂停、重开、结算和悬停动效。
+- 场内对手复用桌宠现有 `idle` 与 `badminton` 动画；主桌宠在比赛开始后进入持续羽毛球活动，比赛结束或关闭窗口后恢复待机。
+- `scripts/pet.gd`：养成窗口“娱乐 → 羽毛球”改为打开小游戏；小游戏期间暂停主动陪伴插话并收起养成/聊天/设置窗口。打开时会把主桌宠排到游戏窗口侧边，避免置顶窗口挡住球场，关闭后恢复原位置；小游戏打开时 `Esc` 不再触发主程序调试退出。
+- `scripts/care_system.gd`：比赛结束按胜负和最长回合增加少量心情、好感并保存本地养成状态；重开后的每局分别结算。
+- 大图 `TextureRect` 必须先设置 `EXPAND_IGNORE_SIZE` 再赋目标尺寸，否则 Godot 会先按 3072x2304 原图最小尺寸夹紧控件，造成地图和 UI 只显示左上角。本轮已统一修正球场、计分板、弹窗和提示牌的构建顺序。
+- 调试直达小游戏：`godot --path "D:\game creat\DesktopPet" -- --show-badminton-game`；正常入口仍是右键打开“她的日常”，选择娱乐中的羽毛球。
+- 运行验证：Godot 4.7.1 编辑器解析通过；实测养成入口、三档选择、开始比赛、鼠标跟拍、点击回球、连击与扣杀蓄力、暂停/继续、`Esc`、关闭恢复均正常。测试连续回击达到连击 2、扣杀 32%；`logs/badminton_runtime.log` 与 `logs/care_entry_runtime.log` 无脚本错误或警告。
+- 视觉 QA：`logs/badminton_final_no_overlap.png` 为难度页，`logs/badminton_native_match_late.png` 为球在近场飞行画面，`logs/badminton_after_autoplay.png` 为实际回击和 HUD 更新画面，`logs/badminton_pause_final.png` 为暂停页。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。

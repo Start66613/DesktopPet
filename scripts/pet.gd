@@ -66,6 +66,7 @@ const AIChatPanel := preload("res://scripts/ai_chat_panel.gd")
 const ProactiveCompanion := preload("res://scripts/proactive_companion.gd")
 const ForegroundAppMonitor := preload("res://scripts/foreground_app_monitor.gd")
 const CompanionSettingsPanel := preload("res://scripts/companion_settings_panel.gd")
+const BadmintonGamePanel := preload("res://scripts/badminton_game_panel.gd")
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 
@@ -118,6 +119,10 @@ var _ai_chat_panel: PetAIChatPanel
 var _proactive_companion: PetProactiveCompanion
 var _foreground_app_monitor: PetForegroundAppMonitor
 var _companion_settings_panel: PetCompanionSettingsPanel
+var _badminton_game: PetBadmintonGame
+var _pet_position_before_badminton := Vector2i.ZERO
+var _pet_position_beside_badminton := Vector2i.ZERO
+var _badminton_position_saved := false
 var _comfort_cooldown := 0.0
 var _need_lines := {
 	"fullness": {"text": "肚子在小声提醒我啦……可以一起吃点东西吗？", "emoji": "🍰"},
@@ -173,6 +178,8 @@ func _ready() -> void:
 		call_deferred("_open_ai_chat_panel")
 	if startup_args.has("--show-companion-settings") or user_args.has("--show-companion-settings"):
 		call_deferred("_open_companion_settings")
+	if startup_args.has("--show-badminton-game") or user_args.has("--show-badminton-game"):
+		call_deferred("_open_badminton_game")
 
 
 func _process(delta: float) -> void:
@@ -285,6 +292,14 @@ func _create_care_features() -> void:
 	_companion_settings_panel.configure(_cjk_font, _proactive_companion, _foreground_app_monitor)
 	add_child(_companion_settings_panel)
 
+	_badminton_game = BadmintonGamePanel.new()
+	_badminton_game.name = "BadmintonGame"
+	_badminton_game.configure(_cjk_font, sprite.sprite_frames)
+	_badminton_game.game_started.connect(_on_badminton_game_started)
+	_badminton_game.game_finished.connect(_on_badminton_game_finished)
+	_badminton_game.game_closed.connect(_on_badminton_game_closed)
+	add_child(_badminton_game)
+
 
 func _on_care_action_performed(result: Dictionary) -> void:
 	if bool(result.get("success", false)) and _proactive_companion:
@@ -307,8 +322,11 @@ func _on_care_action_performed(result: Dictionary) -> void:
 		_show_bubble(message, 3.6, emoji)
 	var activity := String(result.get("activity", ""))
 	if bool(result.get("success", false)) and not activity.is_empty():
-		_active_activity = activity
-		_enter_state(State.ACTIVITY)
+		if activity == BADMINTON_ANIMATION:
+			_open_badminton_game()
+		else:
+			_active_activity = activity
+			_enter_state(State.ACTIVITY)
 	if bool(result.get("success", false)) and _care_feedback:
 		_care_feedback.show_feedback(result.get("effect", "sparkle"), result.get("feedback", ""))
 
@@ -327,6 +345,86 @@ func _on_ai_assistant_replied(text: String) -> void:
 
 func _on_proactive_message(text: String, emoji: String) -> void:
 	_show_bubble(text, 8.0, emoji)
+
+
+func _open_badminton_game() -> void:
+	if not _badminton_game:
+		return
+	if _proactive_companion:
+		_proactive_companion.mark_user_activity()
+	if _context_menu and _context_menu.visible:
+		_context_menu.hide()
+	if _care_panel and _care_panel.visible:
+		_care_panel.hide_panel()
+	if _ai_chat_panel and _ai_chat_panel.visible:
+		_ai_chat_panel.hide_panel()
+	if _companion_settings_panel and _companion_settings_panel.visible:
+		_companion_settings_panel.hide_panel()
+	var screen := DisplayServer.window_get_current_screen()
+	if screen < 0:
+		screen = 0
+	var usable := DisplayServer.screen_get_usable_rect(screen)
+	var panel_size: Vector2i = _badminton_game.size
+	var panel_position := usable.position + (usable.size - panel_size) / 2
+	if not _badminton_game.visible:
+		var pet_size := DisplayServer.window_get_size()
+		var gap := 14
+		var group_width := panel_size.x + gap + pet_size.x
+		if group_width <= usable.size.x:
+			var group_x := usable.position.x + (usable.size.x - group_width) / 2
+			var current_pet_center := DisplayServer.window_get_position().x + pet_size.x / 2
+			var pet_on_left := current_pet_center < usable.get_center().x
+			panel_position.x = group_x + (pet_size.x + gap if pet_on_left else 0)
+			_pet_position_before_badminton = DisplayServer.window_get_position()
+			_pet_position_beside_badminton = Vector2i(
+				group_x if pet_on_left else panel_position.x + panel_size.x + gap,
+				clampi(panel_position.y + panel_size.y - pet_size.y, usable.position.y, usable.end.y - pet_size.y)
+			)
+			DisplayServer.window_set_position(_pet_position_beside_badminton)
+			_window_position = Vector2(_pet_position_beside_badminton)
+			_badminton_position_saved = true
+	_badminton_game.open_at(panel_position)
+
+
+func _on_badminton_game_started() -> void:
+	_hide_bubble()
+	_active_activity = BADMINTON_ANIMATION
+	_enter_state(State.ACTIVITY)
+	_state_duration = -1.0
+
+
+func _on_badminton_game_finished(player_won: bool, best_rally: int) -> void:
+	if _care_system:
+		_care_system.apply_badminton_result(player_won, best_rally)
+	if _proactive_companion:
+		var result_text := "用户刚刚在羽毛球小游戏里赢了你" if player_won else "你刚刚在羽毛球小游戏里赢了用户"
+		_proactive_companion.note_interaction(result_text + "，最长打了%d个回合" % best_rally)
+	_finish_badminton_activity()
+
+
+func _on_badminton_game_closed() -> void:
+	_finish_badminton_activity()
+	_restore_pet_position_after_badminton()
+
+
+func _finish_badminton_activity() -> void:
+	if _active_activity != BADMINTON_ANIMATION and state != State.ACTIVITY:
+		return
+	_active_activity = ""
+	_enter_state(State.IDLE)
+	_state_duration = 4.0
+
+
+func _restore_pet_position_after_badminton() -> void:
+	if not _badminton_position_saved:
+		return
+	var current_position := DisplayServer.window_get_position()
+	if Vector2(current_position).distance_to(Vector2(_pet_position_beside_badminton)) <= 4.0:
+		DisplayServer.window_set_position(_pet_position_before_badminton)
+		_window_position = Vector2(_pet_position_before_badminton)
+	else:
+		_window_position = Vector2(current_position)
+	_badminton_position_saved = false
 
 
 func _describe_care_interaction(result: Dictionary) -> String:
@@ -355,8 +453,9 @@ func _update_proactive_context() -> void:
 	var care_open: bool = _care_panel != null and _care_panel.visible
 	var chat_open: bool = _ai_chat_panel != null and _ai_chat_panel.visible
 	var settings_open: bool = _companion_settings_panel != null and _companion_settings_panel.visible
+	var badminton_open: bool = _badminton_game != null and _badminton_game.visible
 	var quiet_state: bool = state == State.IDLE or state == State.WALK
-	var available: bool = quiet_state and not _dragging and _bubble_time_left <= 0.0 and not menu_open and not care_open and not chat_open and not settings_open
+	var available: bool = quiet_state and not _dragging and _bubble_time_left <= 0.0 and not menu_open and not care_open and not chat_open and not settings_open and not badminton_open
 	var foreground_info := {}
 	if _foreground_app_monitor and _foreground_app_monitor.is_enabled():
 		foreground_info = _foreground_app_monitor.get_current_info()
@@ -1185,6 +1284,8 @@ func _position_window_at_drag_anchor() -> void:
 func _input(event: InputEvent) -> void:
 	# ESC 退出（调试用）
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		if _badminton_game and _badminton_game.visible:
+			return
 		get_tree().quit()
 		return
 
