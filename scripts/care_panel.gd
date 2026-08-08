@@ -4,8 +4,8 @@ class_name PetCarePanel
 signal chat_requested
 
 const BASE_PANEL_SIZE := Vector2i(440, 470)
-const UI_SCALE := 1.18
-const PANEL_SIZE := Vector2i(520, 555)
+const UI_SCALE := 1.32
+const PANEL_SIZE := Vector2i(581, 620)
 const CARE_UI_DIR := "res://assets/care/runtime/ui"
 const MirrorPreview := preload("res://scripts/mirror_preview.gd")
 const StatBar := preload("res://scripts/care_stat_bar.gd")
@@ -60,7 +60,7 @@ func _init() -> void:
 	borderless = true
 	transparent_bg = true
 	unresizable = true
-	always_on_top = false
+	always_on_top = true
 	force_native = true
 
 

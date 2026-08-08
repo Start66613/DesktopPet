@@ -40,21 +40,8 @@ const MENU_CENTER := 3
 const MENU_SLEEP := 4
 const MENU_CARE := 5
 const MENU_TOGGLE_PROACTIVE := 6
-const MENU_COMPANION_SETTINGS := 7
 const MENU_EXIT := 99
 const BADMINTON_ANIMATION := "badminton"
-const MUSIC_ANIMATION := "music"
-const HANDHELD_ANIMATION := "handheld"
-const ACTIVITY_DURATIONS := {
-	BADMINTON_ANIMATION: 13.0,
-	MUSIC_ANIMATION: 22.0,
-	HANDHELD_ANIMATION: 24.0
-}
-const ACTIVITY_SPEEDS := {
-	BADMINTON_ANIMATION: 7.0,
-	MUSIC_ANIMATION: 6.0,
-	HANDHELD_ANIMATION: 6.0
-}
 const UI_TEXTURE_DIR := "res://assets/ui_source/generated/1-animations/textures"
 const CARE_UI_DIR := "res://assets/care/runtime/ui"
 const PET_FONT_PATH := "res://assets/fonts/ZCOOLKuaiLe-Regular.ttf"
@@ -64,8 +51,6 @@ const CarePanel := preload("res://scripts/care_panel.gd")
 const CareFeedback := preload("res://scripts/care_feedback.gd")
 const AIChatPanel := preload("res://scripts/ai_chat_panel.gd")
 const ProactiveCompanion := preload("res://scripts/proactive_companion.gd")
-const ForegroundAppMonitor := preload("res://scripts/foreground_app_monitor.gd")
-const CompanionSettingsPanel := preload("res://scripts/companion_settings_panel.gd")
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 
@@ -116,8 +101,6 @@ var _care_panel: PetCarePanel
 var _care_feedback: PetCareFeedback
 var _ai_chat_panel: PetAIChatPanel
 var _proactive_companion: PetProactiveCompanion
-var _foreground_app_monitor: PetForegroundAppMonitor
-var _companion_settings_panel: PetCompanionSettingsPanel
 var _comfort_cooldown := 0.0
 var _need_lines := {
 	"fullness": {"text": "肚子在小声提醒我啦……可以一起吃点东西吗？", "emoji": "🍰"},
@@ -171,21 +154,18 @@ func _ready() -> void:
 		call_deferred("_open_care_panel")
 	if startup_args.has("--show-chat-panel") or user_args.has("--show-chat-panel"):
 		call_deferred("_open_ai_chat_panel")
-	if startup_args.has("--show-companion-settings") or user_args.has("--show-companion-settings"):
-		call_deferred("_open_companion_settings")
 
 
 func _process(delta: float) -> void:
 	_comfort_cooldown = maxf(_comfort_cooldown - delta, 0.0)
-	if state != State.SLEEP:
-		if state != State.ACTIVITY:
-			_speech_time_left -= delta
+	if state != State.SLEEP and state != State.ACTIVITY:
+		_speech_time_left -= delta
 		if _bubble_time_left > 0.0:
 			_bubble_time_left -= delta
 			if _bubble_time_left <= 0.0:
 				_bubble.clear_message()
 				_update_passthrough()
-		elif state != State.ACTIVITY and _speech_time_left <= 0.0:
+		elif _speech_time_left <= 0.0:
 			_say_random()
 	_update_proactive_context()
 
@@ -203,10 +183,6 @@ func _process(delta: float) -> void:
 				_enter_state(State.WAKE)
 			else:
 				_wake_after_sleep_turn = true
-		return
-	if state == State.ACTIVITY:
-		if _state_duration > 0.0 and _state_time >= _state_duration:
-			_finish_activity()
 		return
 	if state == State.WAKE or not _wandering_enabled:
 		return
@@ -271,19 +247,7 @@ func _create_care_features() -> void:
 	_proactive_companion.name = "ProactiveCompanion"
 	_proactive_companion.configure(_care_system)
 	_proactive_companion.message_ready.connect(_on_proactive_message)
-	_proactive_companion.enabled_changed.connect(_on_proactive_enabled_changed)
-	_proactive_companion.settings_changed.connect(_sync_companion_settings)
 	add_child(_proactive_companion)
-
-	_foreground_app_monitor = ForegroundAppMonitor.new()
-	_foreground_app_monitor.name = "ForegroundAppMonitor"
-	add_child(_foreground_app_monitor)
-	_foreground_app_monitor.set_enabled(_proactive_companion.is_foreground_monitoring_enabled())
-
-	_companion_settings_panel = CompanionSettingsPanel.new()
-	_companion_settings_panel.name = "CompanionSettingsPanel"
-	_companion_settings_panel.configure(_cjk_font, _proactive_companion, _foreground_app_monitor)
-	add_child(_companion_settings_panel)
 
 
 func _on_care_action_performed(result: Dictionary) -> void:
@@ -354,16 +318,11 @@ func _update_proactive_context() -> void:
 	var menu_open: bool = _context_menu != null and _context_menu.visible
 	var care_open: bool = _care_panel != null and _care_panel.visible
 	var chat_open: bool = _ai_chat_panel != null and _ai_chat_panel.visible
-	var settings_open: bool = _companion_settings_panel != null and _companion_settings_panel.visible
 	var quiet_state: bool = state == State.IDLE or state == State.WALK
-	var available: bool = quiet_state and not _dragging and _bubble_time_left <= 0.0 and not menu_open and not care_open and not chat_open and not settings_open
-	var foreground_info := {}
-	if _foreground_app_monitor and _foreground_app_monitor.is_enabled():
-		foreground_info = _foreground_app_monitor.get_current_info()
+	var available: bool = quiet_state and not _dragging and _bubble_time_left <= 0.0 and not menu_open and not care_open and not chat_open
 	_proactive_companion.set_runtime_context({
 		"available": available,
-		"state": _proactive_state_name(),
-		"foreground_app": foreground_info
+		"state": _proactive_state_name()
 	})
 
 
@@ -391,8 +350,6 @@ func _open_ai_chat_panel() -> void:
 		_context_menu.hide()
 	if _care_panel and _care_panel.visible:
 		_care_panel.hide_panel()
-	if _companion_settings_panel and _companion_settings_panel.visible:
-		_companion_settings_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
@@ -413,10 +370,6 @@ func _open_care_panel() -> void:
 		return
 	if _proactive_companion:
 		_proactive_companion.mark_user_activity()
-	if _ai_chat_panel and _ai_chat_panel.visible:
-		_ai_chat_panel.hide_panel()
-	if _companion_settings_panel and _companion_settings_panel.visible:
-		_companion_settings_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
@@ -433,46 +386,6 @@ func _open_care_panel() -> void:
 	if sprite.sprite_frames and sprite.frame >= 0 and sprite.frame < sprite.sprite_frames.get_frame_count(sprite.animation):
 		portrait = sprite.sprite_frames.get_frame_texture(sprite.animation, sprite.frame)
 	_care_panel.open_at(Vector2i(panel_x, panel_y), portrait)
-
-
-func _open_companion_settings() -> void:
-	if not _companion_settings_panel:
-		return
-	if _proactive_companion:
-		_proactive_companion.mark_user_activity()
-	if _context_menu and _context_menu.visible:
-		_context_menu.hide()
-	if _care_panel and _care_panel.visible:
-		_care_panel.hide_panel()
-	if _ai_chat_panel and _ai_chat_panel.visible:
-		_ai_chat_panel.hide_panel()
-	var screen := DisplayServer.window_get_current_screen()
-	if screen < 0:
-		screen = 0
-	var usable := DisplayServer.screen_get_usable_rect(screen)
-	var pet_position := DisplayServer.window_get_position()
-	var pet_size := DisplayServer.window_get_size()
-	var panel_size: Vector2i = _companion_settings_panel.size
-	var panel_x := pet_position.x + pet_size.x + 12
-	if panel_x + panel_size.x > usable.end.x:
-		panel_x = pet_position.x - panel_size.x - 12
-	panel_x = clampi(panel_x, usable.position.x, usable.end.x - panel_size.x)
-	var panel_y := clampi(pet_position.y - 80, usable.position.y, usable.end.y - panel_size.y)
-	_companion_settings_panel.open_at(Vector2i(panel_x, panel_y))
-
-
-func _on_proactive_enabled_changed(enabled: bool) -> void:
-	if not _context_menu:
-		return
-	var index := _context_menu.get_item_index(MENU_TOGGLE_PROACTIVE)
-	if index >= 0:
-		_context_menu.set_item_checked(index, enabled)
-
-
-func _sync_companion_settings() -> void:
-	if _foreground_app_monitor and _proactive_companion:
-		_foreground_app_monitor.set_enabled(_proactive_companion.is_foreground_monitoring_enabled())
-	_on_proactive_enabled_changed(_proactive_companion.is_enabled() if _proactive_companion else false)
 
 
 func _show_bubble(message: String, duration := 2.8, emoji := "") -> void:
@@ -519,7 +432,6 @@ func _create_context_menu() -> void:
 	_context_menu.set_item_checked(_context_menu.get_item_index(MENU_TOGGLE_WANDER), true)
 	_context_menu.add_check_item("主动陪伴", MENU_TOGGLE_PROACTIVE)
 	_context_menu.set_item_checked(_context_menu.get_item_index(MENU_TOGGLE_PROACTIVE), _proactive_companion != null and _proactive_companion.is_enabled())
-	_context_menu.add_item("陪伴设置", MENU_COMPANION_SETTINGS)
 	_context_menu.add_item("回到屏幕中央", MENU_CENTER)
 	_context_menu.add_item("让她睡觉", MENU_SLEEP)
 	_context_menu.add_separator()
@@ -573,7 +485,6 @@ func _style_context_menu() -> void:
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_TALK), _load_ui_texture(17))
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_TOGGLE_WANDER), _load_ui_texture(10))
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_TOGGLE_PROACTIVE), load(CARE_UI_DIR + "/action_chat.png") as Texture2D)
-	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_COMPANION_SETTINGS), load("res://assets/companion/runtime/ui/37_spritesheet.png") as Texture2D)
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_CENTER), _load_ui_texture(6))
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_SLEEP), _load_ui_texture(18))
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_EXIT), _load_ui_texture(28))
@@ -644,8 +555,6 @@ func _on_context_menu_id_pressed(id: int) -> void:
 					_show_bubble("我会偶尔主动来找你说话的～", 3.4, "🌸")
 				else:
 					_show_bubble("好呀，我先安静陪着你。", 3.4, "🌙")
-		MENU_COMPANION_SETTINGS:
-			_open_companion_settings()
 		MENU_CENTER:
 			_center_on_current_screen()
 			_show_bubble("我回来啦！")
@@ -896,8 +805,8 @@ func _load_activity_animations(frames: SpriteFrames) -> void:
 						if source.get_frame_count(source_animation) > 0:
 							var target_name := activity_dir.to_lower()
 							_copy_animation(frames, target_name, source, source_animation)
-							frames.set_animation_loop(target_name, ACTIVITY_DURATIONS.has(target_name))
-							frames.set_animation_speed(target_name, float(ACTIVITY_SPEEDS.get(target_name, 7.0)))
+							frames.set_animation_loop(target_name, false)
+							frames.set_animation_speed(target_name, 7.0)
 							break
 		activity_dir = root.get_next()
 	root.list_dir_end()
@@ -995,14 +904,8 @@ func _enter_state(s: int) -> void:
 			else:
 				_enter_state(State.IDLE)
 		State.ACTIVITY:
-			_state_duration = float(ACTIVITY_DURATIONS.get(_active_activity, 0.0))
+			_state_duration = 0.0
 			_play(_active_activity)
-
-
-func _finish_activity() -> void:
-	_active_activity = ""
-	_enter_state(State.IDLE)
-	_state_duration = 4.0
 
 
 func _choose_walk_direction() -> void:
@@ -1139,8 +1042,10 @@ func _finish_drag_visual() -> void:
 
 
 func _on_animation_finished() -> void:
-	if state == State.ACTIVITY and _state_duration <= 0.0:
-		_finish_activity()
+	if state == State.ACTIVITY:
+		_active_activity = ""
+		_enter_state(State.IDLE)
+		_state_duration = 4.0
 	elif state == State.SLEEP and sprite.animation == SLEEP_ENTER_ANIMATION:
 		if sprite.sprite_frames.has_animation(SLEEP_IDLE_ANIMATION):
 			_play(SLEEP_IDLE_ANIMATION)

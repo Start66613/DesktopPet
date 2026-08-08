@@ -1,8 +1,0 @@
-[gd_scene format=3]
-
-[ext_resource type="Texture2D" path="textures/1786173778703-wd56zn0rjla.png" id="1_texture"]
-
-[node name="1786173778703Wd56zn0rjla" type="Sprite2D"]
-texture_filter = 1
-texture = ExtResource("1_texture")
-centered = false

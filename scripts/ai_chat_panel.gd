@@ -8,11 +8,11 @@ const HISTORY_PATH := "user://ai_chat_history.json"
 const CHAT_UI_DIR := "res://assets/chat/runtime/ui"
 const CHAT_PANEL_TEXTURE := CHAT_UI_DIR + "/chat_panel_runtime.png"
 const BASE_SIZE := Vector2(961, 1378)
-const UI_SCALE := 0.5
-const PANEL_SIZE := Vector2i(480, 689)
+const UI_SCALE := 0.53
+const PANEL_SIZE := Vector2i(510, 731)
 const MAX_HISTORY_MESSAGES := 30
 const REQUEST_HISTORY_MESSAGES := 14
-const MESSAGE_FONT_SIZE := 28
+const MESSAGE_FONT_SIZE := 25
 const HEART_TRACK_TOP := 188.0
 const HEART_TRACK_BOTTOM := 1110.0
 const HEART_THUMB_SIZE := Vector2(74, 74)
@@ -81,7 +81,7 @@ func _init() -> void:
 	borderless = true
 	transparent_bg = true
 	unresizable = true
-	always_on_top = false
+	always_on_top = true
 	force_native = true
 
 
