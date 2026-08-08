@@ -65,7 +65,6 @@ var _key_input: LineEdit
 var _remember_key: CheckBox
 var _settings_status: Label
 var _panel_tween: Tween
-var _button_tweens: Dictionary = {}
 var _history: Array = []
 var _endpoint := ""
 var _model := ""
@@ -438,7 +437,7 @@ func _make_text_button(text: String, button_position: Vector2, button_size: Vect
 	style.set_corner_radius_all(16)
 	button.add_theme_stylebox_override("normal", style)
 	var hover := style.duplicate()
-	hover.bg_color = Color("f7c5cf") if primary else Color("fbe1e2")
+	hover.bg_color = style.bg_color
 	button.add_theme_stylebox_override("hover", hover)
 	button.add_theme_stylebox_override("pressed", hover)
 	return button
@@ -456,15 +455,13 @@ func _minimize_window() -> void:
 func _prepare_open_animation() -> void:
 	if _panel_tween and _panel_tween.is_valid():
 		_panel_tween.kill()
-	_root.modulate = Color(1.0, 1.0, 1.0, 0.0)
-	_root.scale = Vector2.ONE * (UI_SCALE * 0.97)
+	_root.modulate = Color.WHITE
+	_root.scale = Vector2.ONE * UI_SCALE
 
 
 func _play_open_animation() -> void:
-	_panel_tween = create_tween()
-	_panel_tween.set_parallel(true)
-	_panel_tween.tween_property(_root, "modulate", Color.WHITE, 0.18)
-	_panel_tween.tween_property(_root, "scale", Vector2.ONE * UI_SCALE, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_root.modulate = Color.WHITE
+	_root.scale = Vector2.ONE * UI_SCALE
 
 
 func _show_settings() -> void:
@@ -473,10 +470,8 @@ func _show_settings() -> void:
 	_model_input.text = _model
 	_key_input.text = _api_key
 	_settings_status.text = ""
-	_settings_overlay.modulate.a = 0.0
+	_settings_overlay.modulate = Color.WHITE
 	_settings_overlay.visible = true
-	var tween := create_tween()
-	tween.tween_property(_settings_overlay, "modulate:a", 1.0, 0.15)
 
 
 func _hide_settings() -> void:
@@ -850,23 +845,8 @@ func _make_hit_button(node_position: Vector2, node_size: Vector2) -> Button:
 	return button
 
 
-func _bind_button_motion(button: Control, hover_scale: float, angle_degrees: float) -> void:
-	button.pivot_offset = button.size * 0.5
-	button.resized.connect(func() -> void: button.pivot_offset = button.size * 0.5)
-	button.mouse_entered.connect(_animate_button_motion.bind(button, true, hover_scale, angle_degrees))
-	button.mouse_exited.connect(_animate_button_motion.bind(button, false, hover_scale, angle_degrees))
-
-
-func _animate_button_motion(button: Control, hovered: bool, hover_scale: float, angle_degrees: float) -> void:
-	var button_id := button.get_instance_id()
-	var previous: Tween = _button_tweens.get(button_id)
-	if previous and previous.is_valid():
-		previous.kill()
-	var tween := create_tween()
-	_button_tweens[button_id] = tween
-	tween.set_parallel(true)
-	tween.tween_property(button, "scale", Vector2.ONE * (hover_scale if hovered else 1.0), 0.13).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(button, "rotation", deg_to_rad(angle_degrees if hovered else 0.0), 0.13).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+func _bind_button_motion(button: Control, _hover_scale: float, _angle_degrees: float) -> void:
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 
 
 func _apply_font(control: Control) -> void:
