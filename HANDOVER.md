@@ -231,6 +231,14 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 运行验证：`glm-4.7-flash` 曾正常返回结构化中文主动台词；免费接口出现 `429` 后，本地兜底于同一秒显示，随后在 5 秒测试档连续表达。Godot 4.7.1 编辑器解析通过。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-182342`。
 
+## 2026-08-08 前台软件感知优化
+
+- `tools/foreground_app_probe.cs/.exe`：在原生枚举阶段直接过滤 `Godot_v*`、`Godot` 和 `DesktopPet`，桌宠自身不再出现在探针原始输出或八个可见应用名额中。
+- `scripts/foreground_app_monitor.gd`：启用感知后立即执行首次扫描；新增 ChatGPT、主流浏览器、WPS/Office、开发工具、聊天与影音软件的友好名称分类，未知进程统一为“其他应用”；桌宠自身位于前台导致 `FOREGROUND:` 为空时也能安全回退到其他可见软件。
+- `scripts/proactive_companion.gd`：不再向模型传递任何原始进程名，只提供识别后的软件友好名称和粗粒度活动类别；软件切换后的首次表达以及之后约每三次表达，会要求自然结合当前软件，本地限流兜底也遵循同样规则。
+- 运行验证：原生探针输出不含 Godot；首轮主动请求记录 `app_context=true`，`glm-4.7-flash` 实际生成“正在用 ChatGPT 忙吗？要是累了，就看看我吧。”以及“嘿，还在用 Edge 看网页呀？记得让眼睛休息一下哦。”。Godot 4.7.1 编辑器解析通过，常驻运行日志无脚本错误。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260808-191951`。
+
 ## 验证方法
 
 运行时验证点击穿透的行为判定：点击透明区域时，焦点应落到后方窗口而非桌宠；点击角色本体时，焦点应为桌宠窗口。可用 `GetForegroundWindow`（Python ctypes 或任何窗口枚举工具）确认焦点归属。

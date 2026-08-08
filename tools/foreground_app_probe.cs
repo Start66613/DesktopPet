@@ -47,12 +47,24 @@ internal static class ForegroundAppProbe
         }
     }
 
+    private static bool IsIgnoredProcess(string processName)
+    {
+        if (string.IsNullOrEmpty(processName))
+            return true;
+        return IgnoredProcesses.Contains(processName)
+            || processName.StartsWith("Godot_v", StringComparison.OrdinalIgnoreCase)
+            || processName.Equals("Godot", StringComparison.OrdinalIgnoreCase)
+            || processName.Equals("DesktopPet", StringComparison.OrdinalIgnoreCase);
+    }
+
     public static void Main()
     {
         var foreground = string.Empty;
         uint foregroundPid;
         GetWindowThreadProcessId(GetForegroundWindow(), out foregroundPid);
         foreground = ProcessName(foregroundPid);
+        if (IsIgnoredProcess(foreground))
+            foreground = string.Empty;
 
         var visible = new List<string>();
         EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
@@ -63,7 +75,7 @@ internal static class ForegroundAppProbe
             uint processId;
             GetWindowThreadProcessId(hWnd, out processId);
             var processName = ProcessName(processId);
-            if (!string.IsNullOrEmpty(processName) && !IgnoredProcesses.Contains(processName) && !visible.Contains(processName))
+            if (!IsIgnoredProcess(processName) && !visible.Contains(processName))
                 visible.Add(processName);
             return visible.Count < 8;
         }, IntPtr.Zero);

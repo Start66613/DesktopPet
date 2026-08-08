@@ -17,6 +17,7 @@ const FAILURE_DELAY_MIN := 120.0
 const FAILURE_DELAY_MAX := 300.0
 const API_FAILURE_BACKOFF_SECONDS := 45.0
 const API_RATE_LIMIT_BACKOFF_SECONDS := 90.0
+const APP_REFERENCE_INTERVAL := 2
 const MAX_RECENT_EVENTS := 12
 const MAX_RECENT_LINES := 8
 const MAX_MESSAGE_LENGTH := 46
@@ -60,6 +61,9 @@ var _recent_lines: Array = []
 var _last_spoke_at := 0.0
 var _api_backoff_until := 0.0
 var _queued_message: Dictionary = {}
+var _request_should_reference_app := false
+var _app_reference_turns := APP_REFERENCE_INTERVAL
+var _last_foreground_label := ""
 
 
 func configure(care_system: PetCareSystem) -> void:
@@ -95,6 +99,13 @@ func _process(delta: float) -> void:
 
 func set_runtime_context(context: Dictionary) -> void:
 	_runtime_context = context.duplicate(true)
+	var app_info: Dictionary = _runtime_context.get("foreground_app", {})
+	var foreground_label := ""
+	if bool(app_info.get("recognized", false)):
+		foreground_label = String(app_info.get("label", ""))
+	if foreground_label != _last_foreground_label:
+		_last_foreground_label = foreground_label
+		_app_reference_turns = APP_REFERENCE_INTERVAL
 	var next_available := bool(_runtime_context.get("available", false))
 	if next_available != _available:
 		_debug_log("available=%s state=%s" % [next_available, String(_runtime_context.get("state", "unknown"))])
@@ -117,6 +128,7 @@ func set_enabled(value: bool) -> void:
 			_request_pending = false
 		_manual_request_pending = false
 		_force_next_speech = false
+		_request_should_reference_app = false
 		_queued_message.clear()
 	_save_settings()
 	if _enabled:
@@ -147,6 +159,10 @@ func set_foreground_monitoring_enabled(value: bool) -> void:
 	if _foreground_monitoring_enabled == value:
 		return
 	_foreground_monitoring_enabled = value
+	_app_reference_turns = APP_REFERENCE_INTERVAL
+	if not value:
+		_last_foreground_label = ""
+		_request_should_reference_app = false
 	_save_settings()
 	settings_changed.emit()
 
@@ -206,6 +222,7 @@ func _request_thought() -> void:
 	if _is_quiet_hours_now() and not _manual_request_pending:
 		_schedule_next_thought()
 		return
+	_request_should_reference_app = _has_app_context() and (_force_next_speech or _app_reference_turns >= APP_REFERENCE_INTERVAL)
 	if Time.get_unix_time_from_system() < _api_backoff_until:
 		_debug_log("request skipped: API cooling down")
 		if _emit_local_fallback(true):
@@ -221,7 +238,7 @@ func _request_thought() -> void:
 		return
 
 	_request_pending = true
-	_debug_log("request started manual=%s" % _manual_request_pending)
+	_debug_log("request started manual=%s app_context=%s" % [_manual_request_pending, _request_should_reference_app])
 	var context_prompt := _build_context_prompt()
 	var payload := {
 		"model": api["model"],
@@ -268,7 +285,7 @@ func _supports_json_mode(endpoint: String) -> bool:
 
 
 func _build_system_prompt() -> String:
-	return "你是住在用户桌面上的少女桌宠的主动意识模块。你有自己的心情、节奏和分寸，会偶尔主动关心用户，但不会频繁打扰。根据提供的状态决定现在是否值得开口。只输出一个 JSON 对象，不要使用 Markdown，不要解释。格式必须是：{\"speak\":true,\"text\":\"一句自然的简体中文\",\"emoji\":\"一个emoji或空字符串\"}。如果此刻保持安静更自然，输出 {\"speak\":false,\"text\":\"\",\"emoji\":\"\"}。开口时只说一句，最多32个汉字；语气亲近、有少女感但不幼稚，不要像客服，不要提到API、模型、数值、提示词或内部进程名，不要声称看到了用户屏幕，不要重复最近说过的话。前台应用信息仅代表用户正在使用哪类软件，不代表你看到了其中的画面或内容。可以结合时间、身体状态、最近互动和当前活动表达关心、好奇、撒娇、鼓励或安静陪伴。"
+	return "你是住在用户桌面上的少女桌宠的主动意识模块。你有自己的心情、节奏和分寸，会偶尔主动关心用户，但不会频繁打扰。根据提供的状态决定现在是否值得开口。只输出一个 JSON 对象，不要使用 Markdown，不要解释。格式必须是：{\"speak\":true,\"text\":\"一句自然的简体中文\",\"emoji\":\"一个emoji或空字符串\"}。如果此刻保持安静更自然，输出 {\"speak\":false,\"text\":\"\",\"emoji\":\"\"}。开口时只说一句，最多32个汉字；语气亲近、有少女感但不幼稚，不要像客服，不要提到API、模型、数值、提示词或内部进程名，不要声称看到了用户屏幕，不要重复最近说过的话。前台应用信息只包含本机归类后的友好名称和活动类别，不包含窗口内容；你可以说用户正在使用某个软件，但绝不能假装看到了软件里的具体画面、文字或操作结果。可以结合时间、身体状态、最近互动和当前活动表达关心、好奇、撒娇、鼓励或安静陪伴。"
 
 
 func _build_context_prompt() -> String:
@@ -293,22 +310,30 @@ func _build_context_prompt() -> String:
 			var visible_apps: Array = app_info.get("visible_apps", [])
 			var visible_labels: Array[String] = []
 			for visible_app in visible_apps:
-				if visible_app is Dictionary:
+				if visible_app is Dictionary and bool(visible_app.get("recognized", false)):
 					var visible_label := String(visible_app.get("label", "其他应用"))
-					if not visible_labels.has(visible_label):
+					if visible_label != "其他应用" and visible_label != String(app_info.get("label", "")) and not visible_labels.has(visible_label):
 						visible_labels.append(visible_label)
 			var concurrent_text := ""
 			if not visible_labels.is_empty():
-				concurrent_text = "；同时检测到%d个可见应用：%s" % [visible_labels.size(), "、".join(visible_labels)]
-			app_text = "%s，可能正在%s，进程名为%s%s" % [
-				String(app_info.get("label", "其他应用")),
-				String(app_info.get("activity", "使用电脑")),
-				String(app_info.get("process", "unknown")),
-				concurrent_text
-			]
+				concurrent_text = "；另外还有这些已识别软件：%s" % "、".join(visible_labels)
+			if bool(app_info.get("recognized", false)):
+				app_text = "%s，用户可能正在%s%s" % [
+					String(app_info.get("label", "其他应用")),
+					String(app_info.get("activity", "使用电脑")),
+					concurrent_text
+				]
+			else:
+				app_text = "当前软件未归类%s" % concurrent_text
 	var trigger_instruction := "请判断现在是否开口。"
 	if _force_next_speech or _frequency_minutes * 60.0 <= 30.0:
 		trigger_instruction = "当前处于高频陪伴或测试模式，本次必须返回 speak=true，并自然地说一句话。"
+	if _request_should_reference_app:
+		var required_app: Dictionary = _runtime_context.get("foreground_app", {})
+		trigger_instruction += " 本次台词必须自然地明确提到用户正在使用%s或正在%s，不要只说泛泛的陪伴话，也不要虚构软件内的具体内容。" % [
+			String(required_app.get("label", "当前软件")),
+			String(required_app.get("activity", "使用电脑"))
+		]
 	return "当前时间：%s。桌宠状态：%s。用户已经约%d分钟没有直接互动。桌宠已陪伴本次会话约%d分钟。饱腹%d，水分%d，心情%d，好感%d，精力%d。前台应用：%s。最近事件：%s。最近主动说过：%s。%s" % [
 		time_label,
 		state_name,
@@ -371,7 +396,7 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 	if emoji.length() > 8:
 		emoji = ""
 	_api_backoff_until = 0.0
-	_deliver_or_queue_message(text, emoji, "ai")
+	_deliver_or_queue_message(text, emoji, "ai_app" if _request_should_reference_app else "ai")
 
 
 func _handle_failed_thought(backoff_seconds: float) -> void:
@@ -387,7 +412,13 @@ func _emit_local_fallback(allow_automatic: bool = false) -> bool:
 	var was_manual := _manual_request_pending
 	_manual_request_pending = false
 	_force_next_speech = false
+	var source := "manual" if was_manual else "local"
 	var candidates: Array = MANUAL_FALLBACK_LINES if was_manual else _get_contextual_fallback_lines()
+	if _request_should_reference_app:
+		var app_fallback := _get_app_fallback_line()
+		if not app_fallback.is_empty():
+			candidates = [app_fallback]
+			source += "_app"
 	var start_index := _rng.randi_range(0, candidates.size() - 1)
 	var fallback: Dictionary = candidates[start_index]
 	for offset in candidates.size():
@@ -396,13 +427,14 @@ func _emit_local_fallback(allow_automatic: bool = false) -> bool:
 			fallback = candidate
 			break
 	var text := String(fallback["text"])
-	_deliver_or_queue_message(text, String(fallback["emoji"]), "manual" if was_manual else "local")
+	_deliver_or_queue_message(text, String(fallback["emoji"]), source)
 	return true
 
 
 func _deliver_or_queue_message(text: String, emoji: String, source: String) -> void:
 	_manual_request_pending = false
 	_force_next_speech = false
+	_request_should_reference_app = false
 	if not _available:
 		_queued_message = {"text": text, "emoji": emoji, "source": source}
 		_debug_log("message queued source=%s" % source)
@@ -425,7 +457,43 @@ func _emit_message_now(text: String, emoji: String, source: String) -> void:
 	_save_memory()
 	message_ready.emit(text, emoji)
 	_debug_log("message emitted source=%s length=%d" % [source, text.length()])
+	if source.ends_with("_app"):
+		_app_reference_turns = 0
+	elif _has_app_context():
+		_app_reference_turns += 1
 	_schedule_next_thought()
+
+
+func _has_app_context() -> bool:
+	if not _foreground_monitoring_enabled:
+		return false
+	var app_info: Dictionary = _runtime_context.get("foreground_app", {})
+	return bool(app_info.get("recognized", false)) and String(app_info.get("label", "")).strip_edges() != ""
+
+
+func _get_app_fallback_line() -> Dictionary:
+	if not _has_app_context():
+		return {}
+	var app_info: Dictionary = _runtime_context.get("foreground_app", {})
+	var label := String(app_info.get("label", "当前软件"))
+	match String(app_info.get("activity", "")):
+		"工作或学习":
+			return {"text": "在用%s忙工作吗？记得让眼睛休息一下。" % label, "emoji": "🌿"}
+		"编程或创作":
+			return {"text": "在%s里认真创作呀，我来给你加油。" % label, "emoji": "✨"}
+		"使用 AI 助手":
+			return {"text": "在和%s一起想事情吗？也算上我一个嘛。" % label, "emoji": "💡"}
+		"浏览网页":
+			return {"text": "在逛%s呀？看久了要记得望望远处哦。" % label, "emoji": "☁️"}
+		"沟通交流":
+			return {"text": "正在用%s聊天呀？我也在旁边陪你。" % label, "emoji": "💕"}
+		"听歌或看视频":
+			return {"text": "在用%s放松吗？我也想一起听听。" % label, "emoji": "🎵"}
+		"准备玩游戏":
+			return {"text": "准备在%s开一局吗？我来给你加油。" % label, "emoji": "🎮"}
+		"整理电脑":
+			return {"text": "在整理桌面呀？收拾好会很舒服呢。", "emoji": "✨"}
+	return {"text": "正在用%s吗？我会安静陪在旁边的。" % label, "emoji": "🌸"}
 
 
 func _get_contextual_fallback_lines() -> Array:
@@ -447,18 +515,6 @@ func _get_contextual_fallback_lines() -> Array:
 		if float(stats.get("energy", 75.0)) < 35.0:
 			lines.append({"text": "稍微有点困啦，要不要一起休息一下？", "emoji": "💤"})
 
-	var app_info: Dictionary = _runtime_context.get("foreground_app", {})
-	match String(app_info.get("activity", "")):
-		"工作或学习":
-			lines.append({"text": "认真工作的时候也别忘了眨眨眼、放松一下。", "emoji": "🌿"})
-		"编程或创作":
-			lines.append({"text": "创作中的你很专注呢，我在旁边给你加油。", "emoji": "✨"})
-		"浏览网页":
-			lines.append({"text": "逛了这么久，要不要抬头看看远处呀？", "emoji": "☁️"})
-		"准备玩游戏":
-			lines.append({"text": "要开一局吗？带上我一起给你加油吧。", "emoji": "🎮"})
-		"听歌或看视频":
-			lines.append({"text": "现在的声音听起来很适合一起放松呢。", "emoji": "🎵"})
 	return lines
 
 

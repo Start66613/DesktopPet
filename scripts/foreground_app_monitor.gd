@@ -44,7 +44,7 @@ func _exit_tree() -> void:
 
 func set_enabled(value: bool) -> void:
 	_enabled = value and OS.get_name() == "Windows" and not OS.get_cmdline_args().has("--headless")
-	_poll_time = POLL_INTERVAL
+	_poll_time = 0.0 if _enabled else POLL_INTERVAL
 	if not _enabled and not _current_info.is_empty():
 		_current_info.clear()
 		foreground_app_changed.emit({})
@@ -151,39 +151,78 @@ func _is_ignored_process(process_name: String) -> bool:
 
 
 func _sanitize_process_name(raw_name: String) -> String:
-	var line := raw_name.split("\n", false)[0].strip_edges()
+	var segments := raw_name.split("\n", false)
+	if segments.is_empty():
+		return ""
+	var line := String(segments[0]).strip_edges()
+	if line.is_empty():
+		return ""
 	var cleaner := RegEx.new()
 	cleaner.compile("[^A-Za-z0-9_.-]")
 	return cleaner.sub(line, "", true).left(48)
 
 
 func _classify_process(process_name: String) -> Dictionary:
-	var key := process_name.to_lower()
-	var label := process_name
+	var key := process_name.to_lower().trim_suffix(".exe")
+	var label := "其他应用"
 	var activity := "使用电脑"
+	var recognized := true
 	if key in ["wps", "wpp", "et", "wpspdf", "winword", "excel", "powerpnt", "libreoffice"]:
-		label = "办公软件"
+		match key:
+			"wps", "wpp", "et", "wpspdf":
+				label = "WPS"
+			"winword":
+				label = "Word"
+			"excel":
+				label = "Excel"
+			"powerpnt":
+				label = "PowerPoint"
+			_:
+				label = "办公软件"
 		activity = "工作或学习"
 	elif key in ["chrome", "msedge", "firefox", "opera", "brave", "vivaldi"]:
-		label = "浏览器"
+		var browser_labels := {
+			"chrome": "Chrome", "msedge": "Edge", "firefox": "Firefox",
+			"opera": "Opera", "brave": "Brave", "vivaldi": "Vivaldi"
+		}
+		label = String(browser_labels.get(key, "浏览器"))
 		activity = "浏览网页"
-	elif key in ["code", "devenv", "idea64", "pycharm64", "webstorm64", "rider64", "androidstudio", "godot"]:
-		label = "开发工具"
+	elif key in ["code", "cursor", "devenv", "idea64", "pycharm64", "webstorm64", "rider64", "androidstudio"]:
+		var development_labels := {
+			"code": "VS Code", "cursor": "Cursor", "devenv": "Visual Studio",
+			"idea64": "IntelliJ IDEA", "pycharm64": "PyCharm", "webstorm64": "WebStorm",
+			"rider64": "Rider", "androidstudio": "Android Studio"
+		}
+		label = String(development_labels.get(key, "开发工具"))
 		activity = "编程或创作"
+	elif key in ["chatgpt", "claude"]:
+		label = "ChatGPT" if key == "chatgpt" else "Claude"
+		activity = "使用 AI 助手"
 	elif key in ["wechat", "weixin", "qq", "telegram", "discord", "dingtalk", "feishu"]:
-		label = "聊天软件"
+		var chat_labels := {
+			"wechat": "微信", "weixin": "微信", "qq": "QQ", "telegram": "Telegram",
+			"discord": "Discord", "dingtalk": "钉钉", "feishu": "飞书"
+		}
+		label = String(chat_labels.get(key, "聊天软件"))
 		activity = "沟通交流"
 	elif key in ["cloudmusic", "spotify", "qqmusic", "potplayermini64", "vlc", "mpv"]:
-		label = "影音软件"
+		var media_labels := {
+			"cloudmusic": "网易云音乐", "spotify": "Spotify", "qqmusic": "QQ音乐",
+			"potplayermini64": "PotPlayer", "vlc": "VLC", "mpv": "MPV"
+		}
+		label = String(media_labels.get(key, "影音软件"))
 		activity = "听歌或看视频"
 	elif key in ["steam", "steamwebhelper", "epicgameslauncher", "riotclientservices", "leagueclient"]:
-		label = "游戏平台"
+		label = "Steam" if key in ["steam", "steamwebhelper"] else "游戏平台"
 		activity = "准备玩游戏"
 	elif key in ["explorer", "searchhost", "shellexperiencehost"]:
 		label = "Windows 桌面"
 		activity = "整理电脑"
+	else:
+		recognized = false
 	return {
 		"process": process_name,
 		"label": label,
-		"activity": activity
+		"activity": activity,
+		"recognized": recognized
 	}
