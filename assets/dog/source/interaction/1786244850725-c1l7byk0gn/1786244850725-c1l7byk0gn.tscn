@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="SpriteFrames" path="1786244850725-c1l7byk0gn_frames.tres" id="1_frames"]
+
+[node name="1786244850725C1l7byk0gn" type="AnimatedSprite2D"]
+texture_filter = 2
+sprite_frames = ExtResource("1_frames")
+animation = &"小狗和人互动的动画1"
+autoplay = "小狗和人互动的动画1"
+centered = false

@@ -41,11 +41,14 @@ const MENU_SLEEP := 4
 const MENU_CARE := 5
 const MENU_TOGGLE_PROACTIVE := 6
 const MENU_COMPANION_SETTINGS := 7
+const MENU_DOG_HOME := 8
 const MENU_EXIT := 99
 const BADMINTON_ANIMATION := "badminton"
 const MUSIC_ANIMATION := "music"
 const HANDHELD_ANIMATION := "handheld"
 const DRAGON_RIDE_ANIMATION := "dragon_ride"
+const DOG_INTERACTION_ANIMATION := "dog_interaction"
+const DOG_INTERACTION_FRAMES_PATH := "res://assets/dog/source/interaction/1786244850725-c1l7byk0gn/1786244850725-c1l7byk0gn_frames.tres"
 const DRAGON_RIDE_DURATION := 18.0
 const DRAGON_LAUNCH_DELAY := 1.65
 const DRAGON_FLIGHT_SPEED := 165.0
@@ -55,13 +58,15 @@ const ACTIVITY_DURATIONS := {
 	BADMINTON_ANIMATION: 13.0,
 	MUSIC_ANIMATION: 22.0,
 	HANDHELD_ANIMATION: 24.0,
-	DRAGON_RIDE_ANIMATION: DRAGON_RIDE_DURATION
+	DRAGON_RIDE_ANIMATION: DRAGON_RIDE_DURATION,
+	DOG_INTERACTION_ANIMATION: 4.8
 }
 const ACTIVITY_SPEEDS := {
 	BADMINTON_ANIMATION: 7.0,
 	MUSIC_ANIMATION: 6.0,
 	HANDHELD_ANIMATION: 6.0,
-	DRAGON_RIDE_ANIMATION: 8.0
+	DRAGON_RIDE_ANIMATION: 8.0,
+	DOG_INTERACTION_ANIMATION: 8.0
 }
 const UI_TEXTURE_DIR := "res://assets/ui_source/generated/1-animations/textures"
 const CARE_UI_DIR := "res://assets/care/runtime/ui"
@@ -75,6 +80,8 @@ const ProactiveCompanion := preload("res://scripts/proactive_companion.gd")
 const ForegroundAppMonitor := preload("res://scripts/foreground_app_monitor.gd")
 const CompanionSettingsPanel := preload("res://scripts/companion_settings_panel.gd")
 const BadmintonGamePanel := preload("res://scripts/badminton_game_panel.gd")
+const DogCompanion := preload("res://scripts/dog_companion.gd")
+const DogHomePanel := preload("res://scripts/dog_home_panel.gd")
 
 @onready var sprite: AnimatedSprite2D = $AnimatedSprite2D
 
@@ -136,10 +143,13 @@ var _proactive_companion: PetProactiveCompanion
 var _foreground_app_monitor: PetForegroundAppMonitor
 var _companion_settings_panel: PetCompanionSettingsPanel
 var _badminton_game: PetBadmintonGame
+var _dog_companion: PetDogCompanion
+var _dog_home_panel: PetDogHomePanel
 var _pet_position_before_badminton := Vector2i.ZERO
 var _pet_position_beside_badminton := Vector2i.ZERO
 var _badminton_position_saved := false
 var _comfort_cooldown := 0.0
+var _dog_interaction_cooldown := 0.0
 var _need_lines := {
 	"fullness": {"text": "肚子在小声提醒我啦……可以一起吃点东西吗？", "emoji": "🍰"},
 	"hydration": {"text": "有一点口渴，想喝杯甜甜的饮料。", "emoji": "💧"},
@@ -196,12 +206,15 @@ func _ready() -> void:
 		call_deferred("_open_companion_settings")
 	if startup_args.has("--show-badminton-game") or user_args.has("--show-badminton-game"):
 		call_deferred("_open_badminton_game")
+	if startup_args.has("--show-dog-home") or user_args.has("--show-dog-home"):
+		call_deferred("_open_dog_home_panel")
 	if startup_args.has("--show-dragon-ride") or user_args.has("--show-dragon-ride"):
 		call_deferred("_begin_dragon_ride_easter_egg")
 
 
 func _process(delta: float) -> void:
 	_comfort_cooldown = maxf(_comfort_cooldown - delta, 0.0)
+	_dog_interaction_cooldown = maxf(_dog_interaction_cooldown - delta, 0.0)
 	_scripted_dialogue_time_left = maxf(_scripted_dialogue_time_left - delta, 0.0)
 	if state != State.SLEEP:
 		if state != State.ACTIVITY:
@@ -322,6 +335,23 @@ func _create_care_features() -> void:
 	_companion_settings_panel.dragon_easter_egg_requested.connect(_on_dragon_easter_egg_requested)
 	add_child(_companion_settings_panel)
 
+	var pet_screen := DisplayServer.window_get_current_screen()
+	if pet_screen < 0:
+		pet_screen = 0
+	_dog_companion = DogCompanion.new()
+	_dog_companion.name = "DogCompanion"
+	_dog_companion.configure(DisplayServer.window_get_position() + Vector2i(205, 205), pet_screen)
+	_dog_companion.dog_clicked.connect(_on_dog_clicked)
+	_dog_companion.home_requested.connect(_open_dog_home_panel)
+	_dog_companion.care_message.connect(_on_dog_care_message)
+	add_child(_dog_companion)
+
+	_dog_home_panel = DogHomePanel.new()
+	_dog_home_panel.name = "DogHomePanel"
+	_dog_home_panel.configure(_cjk_font, _dog_companion.get_sprite_frames())
+	_dog_home_panel.action_requested.connect(_on_dog_home_action)
+	add_child(_dog_home_panel)
+
 	_badminton_game = BadmintonGamePanel.new()
 	_badminton_game.name = "BadmintonGame"
 	_badminton_game.configure(_cjk_font, sprite.sprite_frames)
@@ -379,6 +409,59 @@ func _on_proactive_message(text: String, emoji: String) -> void:
 	_show_bubble(text, 8.0, emoji)
 
 
+func _on_dog_clicked() -> void:
+	if _proactive_companion:
+		_proactive_companion.mark_user_activity()
+		_proactive_companion.note_interaction("用户刚刚摸了摸小雪球")
+	if state == State.SLEEP or state == State.WAKE:
+		_enter_state(State.IDLE)
+		_show_bubble("小雪球把我也叫醒啦……来一起玩吧 (－ω－)", 3.6, "🐾")
+		return
+	if state == State.ACTIVITY or _dragon_launch_time_left > 0.0:
+		_show_bubble("小雪球在旁边乖乖等着呢 (ᵔᴥᵔ)", 3.2, "🐾")
+		return
+	if _dog_interaction_cooldown <= 0.0 and sprite.sprite_frames.has_animation(DOG_INTERACTION_ANIMATION):
+		_start_dog_interaction()
+	else:
+		_enter_state(State.IDLE)
+		_state_duration = 4.5
+		_show_bubble("小雪球好像很喜欢你摸摸它 (^_^)", 3.4, "🐾")
+
+
+func _start_dog_interaction() -> void:
+	if not _dog_companion or not sprite.sprite_frames.has_animation(DOG_INTERACTION_ANIMATION):
+		return
+	_dog_interaction_cooldown = 14.0
+	_dog_companion.hide_for_interaction()
+	_active_activity = DOG_INTERACTION_ANIMATION
+	_enter_state(State.ACTIVITY)
+	_show_bubble("小雪球，过来抱抱～ (≧▽≦)", 3.2, "🐾")
+
+
+func _restore_dog_after_interaction() -> void:
+	if not _dog_companion:
+		return
+	var screen := DisplayServer.window_get_current_screen()
+	if screen < 0:
+		screen = 0
+	var beside_pet := DisplayServer.window_get_position() + Vector2i(205, 205)
+	_dog_companion.restore_after_interaction(beside_pet, screen)
+
+
+func _on_dog_home_action(action: String) -> void:
+	if _dog_companion:
+		_dog_companion.perform_care(action)
+	if _proactive_companion:
+		_proactive_companion.mark_user_activity()
+		_proactive_companion.note_interaction("用户刚刚在小雪球的小屋里照顾了它")
+
+
+func _on_dog_care_message(message: String, emoji: String) -> void:
+	if state == State.SLEEP or state == State.WAKE:
+		_enter_state(State.IDLE)
+	_show_bubble(message, 4.0, emoji)
+
+
 func _open_badminton_game() -> void:
 	if not _badminton_game:
 		return
@@ -392,6 +475,8 @@ func _open_badminton_game() -> void:
 		_ai_chat_panel.hide_panel()
 	if _companion_settings_panel and _companion_settings_panel.visible:
 		_companion_settings_panel.hide_panel()
+	if _dog_home_panel and _dog_home_panel.visible:
+		_dog_home_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
@@ -487,9 +572,10 @@ func _update_proactive_context() -> void:
 	var care_open: bool = _care_panel != null and _care_panel.visible
 	var chat_open: bool = _ai_chat_panel != null and _ai_chat_panel.visible
 	var settings_open: bool = _companion_settings_panel != null and _companion_settings_panel.visible
+	var dog_home_open: bool = _dog_home_panel != null and _dog_home_panel.visible
 	var badminton_open: bool = _badminton_game != null and _badminton_game.visible
 	var quiet_state: bool = state == State.IDLE or state == State.WALK
-	var available: bool = quiet_state and not _dragging and _bubble_time_left <= 0.0 and not menu_open and not care_open and not chat_open and not settings_open and not badminton_open
+	var available: bool = quiet_state and not _dragging and _bubble_time_left <= 0.0 and not menu_open and not care_open and not chat_open and not settings_open and not dog_home_open and not badminton_open
 	var foreground_info := {}
 	if _foreground_app_monitor and _foreground_app_monitor.is_enabled():
 		foreground_info = _foreground_app_monitor.get_current_info()
@@ -515,6 +601,34 @@ func _proactive_state_name() -> String:
 	return "待机"
 
 
+func _open_dog_home_panel() -> void:
+	if not _dog_home_panel:
+		return
+	if _proactive_companion:
+		_proactive_companion.mark_user_activity()
+	if _context_menu and _context_menu.visible:
+		_context_menu.hide()
+	if _care_panel and _care_panel.visible:
+		_care_panel.hide_panel()
+	if _ai_chat_panel and _ai_chat_panel.visible:
+		_ai_chat_panel.hide_panel()
+	if _companion_settings_panel and _companion_settings_panel.visible:
+		_companion_settings_panel.hide_panel()
+	var screen := DisplayServer.window_get_current_screen()
+	if screen < 0:
+		screen = 0
+	var usable := DisplayServer.screen_get_usable_rect(screen)
+	var pet_position := DisplayServer.window_get_position()
+	var pet_size := DisplayServer.window_get_size()
+	var panel_size: Vector2i = _dog_home_panel.size
+	var panel_x := pet_position.x + pet_size.x + 12
+	if panel_x + panel_size.x > usable.end.x:
+		panel_x = pet_position.x - panel_size.x - 12
+	panel_x = clampi(panel_x, usable.position.x, usable.end.x - panel_size.x)
+	var panel_y := clampi(pet_position.y - 25, usable.position.y, usable.end.y - panel_size.y)
+	_dog_home_panel.open_at(Vector2i(panel_x, panel_y))
+
+
 func _open_ai_chat_panel() -> void:
 	if not _ai_chat_panel:
 		return
@@ -526,6 +640,8 @@ func _open_ai_chat_panel() -> void:
 		_care_panel.hide_panel()
 	if _companion_settings_panel and _companion_settings_panel.visible:
 		_companion_settings_panel.hide_panel()
+	if _dog_home_panel and _dog_home_panel.visible:
+		_dog_home_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
@@ -550,6 +666,8 @@ func _open_care_panel() -> void:
 		_ai_chat_panel.hide_panel()
 	if _companion_settings_panel and _companion_settings_panel.visible:
 		_companion_settings_panel.hide_panel()
+	if _dog_home_panel and _dog_home_panel.visible:
+		_dog_home_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
@@ -579,6 +697,8 @@ func _open_companion_settings() -> void:
 		_care_panel.hide_panel()
 	if _ai_chat_panel and _ai_chat_panel.visible:
 		_ai_chat_panel.hide_panel()
+	if _dog_home_panel and _dog_home_panel.visible:
+		_dog_home_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
@@ -597,6 +717,8 @@ func _open_companion_settings() -> void:
 func _on_dragon_easter_egg_requested() -> void:
 	if _companion_settings_panel and _companion_settings_panel.visible:
 		_companion_settings_panel.hide_panel()
+	if _dog_home_panel and _dog_home_panel.visible:
+		_dog_home_panel.hide_panel()
 	if _proactive_companion:
 		_proactive_companion.mark_user_activity()
 		_proactive_companion.note_interaction("用户发现了藏在设置里的骑龙彩蛋")
@@ -619,6 +741,8 @@ func _begin_dragon_ride_easter_egg() -> void:
 		_ai_chat_panel.hide_panel()
 	if _context_menu and _context_menu.visible:
 		_context_menu.hide()
+	if _active_activity == DOG_INTERACTION_ANIMATION:
+		_restore_dog_after_interaction()
 	_active_activity = ""
 	_enter_state(State.IDLE)
 	_state_duration = DRAGON_LAUNCH_DELAY + 1.0
@@ -746,6 +870,7 @@ func _create_context_menu() -> void:
 	_context_menu.name = "PetContextMenu"
 	_context_menu.min_size = Vector2i(224, 0)
 	_context_menu.add_item("打开她的日常", MENU_CARE)
+	_context_menu.add_item("小雪球的小屋", MENU_DOG_HOME)
 	_context_menu.add_separator()
 	_context_menu.add_item("和她说说话", MENU_TALK)
 	_context_menu.add_check_item("自动散步", MENU_TOGGLE_WANDER)
@@ -803,6 +928,7 @@ func _style_context_menu() -> void:
 	_context_menu.add_theme_constant_override("h_separation", 8)
 	_context_menu.add_theme_constant_override("v_separation", 5)
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_CARE), load(CARE_UI_DIR + "/action_comfort.png") as Texture2D)
+	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_DOG_HOME), load("res://assets/dog/source/blue_ui/1-animations/textures/4_spritesheet.png") as Texture2D)
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_TALK), _load_ui_texture(17))
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_TOGGLE_WANDER), _load_ui_texture(10))
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_TOGGLE_PROACTIVE), load(CARE_UI_DIR + "/action_chat.png") as Texture2D)
@@ -817,6 +943,8 @@ func _load_ui_texture(number: int) -> Texture2D:
 
 
 func _open_context_menu() -> void:
+	if _active_activity == DOG_INTERACTION_ANIMATION:
+		_finish_activity()
 	_dragging = false
 	_finish_drag_visual()
 	DisplayServer.window_set_mouse_passthrough(PackedVector2Array())
@@ -860,6 +988,8 @@ func _on_context_menu_id_pressed(id: int) -> void:
 	match id:
 		MENU_CARE:
 			_open_care_panel()
+		MENU_DOG_HOME:
+			_open_dog_home_panel()
 		MENU_TALK:
 			_open_ai_chat_panel()
 		MENU_TOGGLE_WANDER:
@@ -1081,6 +1211,7 @@ func _build_sprite_frames() -> SpriteFrames:
 
 	_load_movement_animations(frames)
 	_load_activity_animations(frames)
+	_load_dog_interaction_animation(frames)
 	return frames
 
 
@@ -1134,6 +1265,19 @@ func _load_activity_animations(frames: SpriteFrames) -> void:
 							break
 		activity_dir = root.get_next()
 	root.list_dir_end()
+
+
+func _load_dog_interaction_animation(frames: SpriteFrames) -> void:
+	var source := load(DOG_INTERACTION_FRAMES_PATH) as SpriteFrames
+	if not source:
+		return
+	for source_animation in source.get_animation_names():
+		if source.get_frame_count(source_animation) <= 0:
+			continue
+		_copy_animation(frames, DOG_INTERACTION_ANIMATION, source, source_animation)
+		frames.set_animation_loop(DOG_INTERACTION_ANIMATION, true)
+		frames.set_animation_speed(DOG_INTERACTION_ANIMATION, float(ACTIVITY_SPEEDS[DOG_INTERACTION_ANIMATION]))
+		break
 
 
 func _find_frames_resource(path: String) -> String:
@@ -1236,9 +1380,12 @@ func _finish_activity() -> void:
 	if _active_activity == DRAGON_RIDE_ANIMATION:
 		_finish_dragon_ride(false)
 		return
+	var completed_activity := _active_activity
 	_active_activity = ""
 	_enter_state(State.IDLE)
 	_state_duration = 4.0
+	if completed_activity == DOG_INTERACTION_ANIMATION:
+		_restore_dog_after_interaction()
 
 
 func _choose_walk_direction() -> void:
@@ -1478,6 +1625,8 @@ func _input(event: InputEvent) -> void:
 
 
 func _on_pet_clicked() -> void:
+	if _active_activity == DOG_INTERACTION_ANIMATION:
+		return
 	# 点击后给桌宠一段安静的回应，避免立刻被自动闲逛打断。
 	if state == State.SLEEP:
 		if _proactive_companion:

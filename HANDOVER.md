@@ -315,3 +315,14 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `scripts/pet.gd`：触发后先显示骑龙剧情台词，再进入约 `18` 秒的桌面飞行；窗口以约 `165px/s` 横向巡航、轻微上下起伏并在屏幕右侧飞出后从左侧重新进入。飞行中点击角色可提前降落，结束后恢复原位置、待机和点击穿透。
 - 剧情气泡带短暂优先级锁，主动陪伴回复不会覆盖起飞和降落台词；调试直达参数为 `--show-dragon-ride`。
 - Godot 4.7.1 导入与脚本解析通过；真实设置按钮五连点会收起设置并触发起飞，视觉 QA 见 `logs/dragon_secret_dialogue.png` 和 `logs/dragon_secret_flight.png`。
+
+## 2026-08-09 小狗陪伴系统 1.0
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260809-111522`；源项目与备份均为 `3194` 个文件、`207931344` 字节。
+- `assets/dog/packages/`：归档用户提供的淡蓝 UI、家具、人狗互动、八向行走和待机五个原始 ZIP，并用 `.gdignore` 避免 Godot 重复导入归档副本；`assets/dog/source/` 保留完整 Meowa Godot 导出源文件，未改写原始素材。
+- `scripts/dog_companion.gd`：新增 `128x128` 原生透明置顶小狗窗口。小狗以 `2x` 最近邻显示 `64x64` 像素帧，支持 8 帧待机、八方向各 8 帧散步、屏幕边缘转向、玩球加速、左键摸摸、拖动和右键打开小屋。
+- 小狗窗口按当前动画帧的 Alpha 轮廓生成点击区域，透明背景穿透到后方应用；拖动期间临时接管窗口，松手后恢复逐帧穿透。
+- `scripts/dog_home_panel.gd`：新增可拖动的淡蓝“小雪球的小屋”普通层级窗口，使用生成 UI 的大面板、预览框、状态条和关闭按钮；狗粮盆、水盆、球与软床分别提供喂点心、喝水、玩球和休息反馈，按钮仅做缩放/轻摆，不使用透明度悬停动画。
+- `scripts/pet.gd`：右键菜单新增“小雪球的小屋”；点击小狗在冷却允许时播放用户提供的 16 帧人狗合成互动约 4.8 秒，独立小狗会临时隐藏，结束后回到女孩脚边。主动陪伴在小屋或人狗互动期间不会插话。
+- 调试直达小屋：`godot --path "D:\game creat\DesktopPet" -- --show-dog-home`。
+- 验证方式改为资源结构检查 → 直接实现 → Godot headless 导入/运行 → 单次最终画面检查，不再反复截图或模拟鼠标点击。本轮 Godot 4.7.1 编辑器导入、普通 headless 运行和小屋直达运行均退出码为 0；可见实例日志无脚本错误，最终画面为 `logs/dog_companion_smoke.png`。
