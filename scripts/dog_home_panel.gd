@@ -2,7 +2,8 @@ extends Window
 class_name PetDogHomePanel
 
 signal action_requested(action: String)
-signal adoption_requested
+signal adoption_requested(name: String)
+signal name_change_requested(name: String)
 signal home_toggle_requested
 
 const UI_DIR := "res://assets/dog/source/blue_ui/1-animations/textures"
@@ -23,21 +24,22 @@ var _dog_frames: SpriteFrames
 var _root: Control
 var _preview: AnimatedSprite2D
 var _title_label: Label
-var _name_label: Label
+var _name_edit: LineEdit
+var _name_save_button: TextureButton
 var _status_label: Label
 var _home_toggle_button: TextureButton
 var _home_toggle_label: Label
 var _action_controls: Array[CanvasItem] = []
 var _adoption_controls: Array[CanvasItem] = []
-var _panel_tween: Tween
 var _button_tweens: Dictionary = {}
 var _adopted := false
 var _dog_active := false
+var _dog_name := ""
 
 
 func _init() -> void:
 	visible = false
-	title = "小雪球的小屋"
+	title = "小狗的小屋"
 	size = PANEL_SIZE
 	min_size = PANEL_SIZE
 	borderless = true
@@ -57,32 +59,32 @@ func _ready() -> void:
 	_build_ui()
 
 
-func open_at(screen_position: Vector2i, adopted: bool, dog_active: bool) -> void:
-	position = screen_position
-	mode = Window.MODE_WINDOWED
-	_refresh_mode(adopted, dog_active)
+func open_at(screen_position: Vector2i, adopted: bool, dog_active: bool, dog_name: String) -> void:
+	_refresh_mode(adopted, dog_active, dog_name)
 	if _preview and _dog_frames and _dog_frames.has_animation("idle"):
 		_preview.play("idle")
 	_restore_visual_state()
 	if visible:
-		grab_focus()
 		DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), get_window_id())
+		grab_focus()
 		return
-	_prepare_open_animation()
+	position = screen_position
+	mode = Window.MODE_WINDOWED
+	transparent_bg = true
 	show()
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
 	DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), get_window_id())
-	transparent_bg = true
 	grab_focus()
-	_play_open_animation()
 
 
-func refresh_state(adopted: bool, dog_active: bool) -> void:
-	_refresh_mode(adopted, dog_active)
+func refresh_state(adopted: bool, dog_active: bool, dog_name: String) -> void:
+	_refresh_mode(adopted, dog_active, dog_name)
 
 
 func hide_panel() -> void:
 	_restore_visual_state()
+	if _name_edit:
+		_name_edit.release_focus()
 	hide()
 
 
@@ -105,7 +107,7 @@ func _build_ui() -> void:
 	drag_handle.gui_input.connect(_on_drag_handle_gui_input)
 	_root.add_child(drag_handle)
 
-	_title_label = _make_label("小雪球的小屋", Vector2(490, 122), Vector2(620, 72), 50, Color("55748c"))
+	_title_label = _make_label("小狗的小屋", Vector2(490, 122), Vector2(620, 72), 50, Color("55748c"))
 	_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_root.add_child(_title_label)
 
@@ -122,9 +124,7 @@ func _build_ui() -> void:
 	if _dog_frames and _dog_frames.has_animation("idle"):
 		_preview.play("idle")
 
-	_name_label = _make_label("小雪球", Vector2(185, 545), Vector2(340, 50), 34, Color("5f7587"))
-	_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_root.add_child(_name_label)
+	_build_name_editor()
 
 	var status_bar := _make_texture_rect(UI_DIR + "/11_spritesheet.png", Vector2(670, 192), Vector2(710, 124))
 	status_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -196,6 +196,46 @@ func _build_adoption_controls() -> void:
 	_adoption_controls.append(label)
 
 
+func _build_name_editor() -> void:
+	_name_edit = LineEdit.new()
+	_name_edit.position = Vector2(155, 540)
+	_name_edit.size = Vector2(325, 66)
+	_name_edit.placeholder_text = "给它起个名字"
+	_name_edit.max_length = 8
+	_name_edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_name_edit.add_theme_font_size_override("font_size", 31)
+	_name_edit.add_theme_color_override("font_color", Color("55748c"))
+	_name_edit.add_theme_color_override("font_placeholder_color", Color("93a9b8"))
+	_name_edit.add_theme_color_override("caret_color", Color("6d94ad"))
+	if _font:
+		_name_edit.add_theme_font_override("font", _font)
+	var normal_style := StyleBoxFlat.new()
+	normal_style.bg_color = Color("eefaff")
+	normal_style.border_color = Color("9fc9de")
+	normal_style.set_border_width_all(4)
+	normal_style.set_corner_radius_all(18)
+	normal_style.content_margin_left = 18.0
+	normal_style.content_margin_right = 18.0
+	var focus_style := normal_style.duplicate() as StyleBoxFlat
+	focus_style.bg_color = Color("ffffff")
+	focus_style.border_color = Color("72aeca")
+	_name_edit.add_theme_stylebox_override("normal", normal_style)
+	_name_edit.add_theme_stylebox_override("focus", focus_style)
+	_name_edit.text_submitted.connect(_on_name_submitted)
+	_root.add_child(_name_edit)
+
+	_name_save_button = TextureButton.new()
+	_name_save_button.position = Vector2(487, 532)
+	_name_save_button.size = Vector2(82, 82)
+	_name_save_button.texture_normal = load(UI_DIR + "/5_spritesheet.png") as Texture2D
+	_name_save_button.ignore_texture_size = true
+	_name_save_button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+	_name_save_button.tooltip_text = "保存名字"
+	_name_save_button.pressed.connect(_submit_name)
+	_root.add_child(_name_save_button)
+	_bind_button_motion(_name_save_button, 1.08, 2.0)
+
+
 func _build_home_toggle() -> void:
 	_home_toggle_button = TextureButton.new()
 	_home_toggle_button.position = Vector2(1285, 54)
@@ -204,7 +244,7 @@ func _build_home_toggle() -> void:
 	_home_toggle_button.ignore_texture_size = true
 	_home_toggle_button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
 	_home_toggle_button.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	_home_toggle_button.tooltip_text = "让小雪球回窝"
+	_home_toggle_button.tooltip_text = "让小狗回窝"
 	_home_toggle_button.pressed.connect(_on_home_toggle_pressed)
 	_root.add_child(_home_toggle_button)
 	_bind_button_motion(_home_toggle_button, 1.08, 2.0)
@@ -214,34 +254,60 @@ func _build_home_toggle() -> void:
 	_root.add_child(_home_toggle_label)
 
 
-func _refresh_mode(adopted: bool, dog_active: bool) -> void:
+func _refresh_mode(adopted: bool, dog_active: bool, dog_name: String) -> void:
 	_adopted = adopted
 	_dog_active = dog_active
+	_dog_name = dog_name.strip_edges()
+	var display_name := _dog_name if not _dog_name.is_empty() else "小狗"
 	for control in _action_controls:
 		control.visible = adopted
 	for control in _adoption_controls:
 		control.visible = not adopted
 	_home_toggle_button.visible = adopted
 	_home_toggle_label.visible = adopted
+	if _name_edit and (not _name_edit.has_focus() or _name_edit.text.strip_edges().is_empty()):
+		_name_edit.text = _dog_name
 	if adopted:
-		_title_label.text = "小雪球的小屋"
-		_name_label.text = "小雪球"
-		_status_label.text = "正在桌面陪你巡逻呢" if dog_active else "正在窝里安静休息"
+		title = display_name + "的小屋"
+		_title_label.text = title
+		_status_label.text = ("还没有名字，先给它取个名字吧" if _dog_name.is_empty() else ("正在桌面陪你巡逻呢" if dog_active else "正在窝里安静休息"))
 		_home_toggle_label.text = "回窝" if dog_active else "叫出来"
-		_home_toggle_button.tooltip_text = "让小雪球回窝" if dog_active else "叫小雪球出来"
+		_home_toggle_button.tooltip_text = ("让%s回窝" % display_name) if dog_active else ("叫%s出来" % display_name)
 	else:
+		title = "流浪小狗领养处"
 		_title_label.text = "流浪小狗领养处"
-		_name_label.text = "等待一个名字"
 		_status_label.text = "一只白色小狗正在等待新的家"
 
 
 func _on_action_pressed(action: String, label: String) -> void:
-	_status_label.text = "正在" + label + "，看起来很开心"
+	var display_name := _dog_name if not _dog_name.is_empty() else "小狗"
+	_status_label.text = display_name + "正在" + label + "，看起来很开心"
 	action_requested.emit(action)
 
 
 func _on_adoption_pressed() -> void:
-	adoption_requested.emit()
+	var requested_name := _name_edit.text.strip_edges()
+	if requested_name.is_empty():
+		_status_label.text = "先给它起个名字，再带它回家吧"
+		_name_edit.grab_focus()
+		return
+	adoption_requested.emit(requested_name)
+
+
+func _on_name_submitted(_submitted_name: String) -> void:
+	_submit_name()
+
+
+func _submit_name() -> void:
+	var requested_name := _name_edit.text.strip_edges()
+	if requested_name.is_empty():
+		_status_label.text = "名字不可以空着哦"
+		_name_edit.grab_focus()
+		return
+	if _adopted:
+		name_change_requested.emit(requested_name)
+	else:
+		adoption_requested.emit(requested_name)
 
 
 func _on_home_toggle_pressed() -> void:
@@ -254,21 +320,11 @@ func _on_drag_handle_gui_input(event: InputEvent) -> void:
 
 
 func _restore_visual_state() -> void:
-	if _panel_tween and _panel_tween.is_valid():
-		_panel_tween.kill()
+	if not _root:
+		return
 	_root.visible = true
 	_root.modulate = Color.WHITE
 	_root.scale = Vector2.ONE * UI_SCALE
-
-
-func _prepare_open_animation() -> void:
-	_restore_visual_state()
-	_root.scale = Vector2.ONE * (UI_SCALE * 0.975)
-
-
-func _play_open_animation() -> void:
-	_panel_tween = create_tween()
-	_panel_tween.tween_property(_root, "scale", Vector2.ONE * UI_SCALE, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
 func _bind_button_motion(button: Control, hover_scale: float, angle_degrees: float) -> void:

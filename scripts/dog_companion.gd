@@ -5,6 +5,7 @@ signal dog_clicked
 signal home_requested
 signal owner_reached
 signal availability_changed(adopted: bool, active: bool)
+signal name_changed(name: String)
 signal care_message(message: String, emoji: String)
 
 const WINDOW_SIZE := Vector2i(128, 128)
@@ -19,6 +20,8 @@ const APPROACH_REACHED_DISTANCE := 18.0
 const DRAG_THRESHOLD := 6.0
 const ALPHA_THRESHOLD := 0.04
 const SAVE_PATH := "user://dog_companion.cfg"
+const DEFAULT_DISPLAY_NAME := "小狗"
+const MAX_NAME_LENGTH := 8
 const IDLE_FRAMES_PATH := "res://assets/dog/source/idle/1786211809628-5htktvepw1s/1786211809628-5htktvepw1s_frames.tres"
 
 const WALK_FRAME_PATHS := {
@@ -48,6 +51,7 @@ var _playful_until := 0.0
 var _hidden_for_interaction := false
 var _adopted := false
 var _active := false
+var _dog_name := ""
 var _owner_anchor := Vector2.ZERO
 var _has_owner_anchor := false
 var _approach_target := Vector2.ZERO
@@ -61,7 +65,7 @@ var _click_tween: Tween
 
 func _init() -> void:
 	visible = false
-	title = "小雪球"
+	title = DEFAULT_DISPLAY_NAME
 	size = WINDOW_SIZE
 	min_size = WINDOW_SIZE
 	borderless = true
@@ -81,6 +85,7 @@ func configure(initial_position: Vector2i, screen_index: int) -> void:
 func _ready() -> void:
 	_rng.randomize()
 	_load_saved_state()
+	title = get_display_name()
 	_frames = _build_frames()
 	_sprite = AnimatedSprite2D.new()
 	_sprite.name = "DogSprite"
@@ -141,9 +146,33 @@ func is_available() -> bool:
 	return _adopted and _active
 
 
-func adopt(screen_position: Vector2i, screen_index: int) -> void:
+func get_dog_name() -> String:
+	return _dog_name
+
+
+func get_display_name() -> String:
+	return _dog_name if not _dog_name.is_empty() else DEFAULT_DISPLAY_NAME
+
+
+func rename(new_name: String) -> bool:
+	var normalized_name := _normalize_name(new_name)
+	if normalized_name.is_empty():
+		return false
+	_dog_name = normalized_name
+	title = _dog_name
+	_save_state()
+	name_changed.emit(_dog_name)
+	return true
+
+
+func adopt(new_name: String, screen_position: Vector2i, screen_index: int) -> bool:
+	var normalized_name := _normalize_name(new_name)
+	if normalized_name.is_empty():
+		return false
 	_adopted = true
 	_active = true
+	_dog_name = normalized_name
+	title = _dog_name
 	_hidden_for_interaction = false
 	_screen_index = maxi(screen_index, 0)
 	_window_position = Vector2(_clamp_position(screen_position))
@@ -154,6 +183,8 @@ func adopt(screen_position: Vector2i, screen_index: int) -> void:
 	_enter_state(State.IDLE)
 	_update_passthrough()
 	availability_changed.emit(_adopted, _active)
+	name_changed.emit(_dog_name)
+	return true
 
 
 func send_home() -> void:
@@ -225,12 +256,13 @@ func restore_after_interaction(screen_position: Vector2i, screen_index: int) -> 
 func perform_care(action: String) -> void:
 	if not _adopted:
 		return
+	var dog_name := get_display_name()
 	match action:
 		"feed":
 			if is_available():
 				_enter_state(State.IDLE)
 				_state_duration = 5.5
-			care_message.emit("小雪球吃得好香，尾巴都摇起来啦 (^_^)", "🍖")
+			care_message.emit("%s吃得好香，尾巴都摇起来啦 (^_^)" % dog_name, "🍖")
 		"drink":
 			if is_available():
 				_enter_state(State.IDLE)
@@ -241,12 +273,12 @@ func perform_care(action: String) -> void:
 				_playful_until = 8.0
 				_enter_state(State.WALK)
 				_state_duration = 8.0
-			care_message.emit("球球飞出去啦，小雪球快追！ (^o^)", "🎾")
+			care_message.emit("球球飞出去啦，%s快追！ (^o^)" % dog_name, "🎾")
 		"rest":
 			if is_available():
 				_enter_state(State.REST)
 				_state_duration = 8.0
-			care_message.emit("小雪球在软软的窝里团成一团啦 (－ω－) zzZ", "💤")
+			care_message.emit("%s在软软的窝里团成一团啦 (－ω－) zzZ" % dog_name, "💤")
 
 
 func _enter_state(next_state: int) -> void:
@@ -509,13 +541,23 @@ func _load_saved_state() -> void:
 	if config.load(SAVE_PATH) != OK:
 		_adopted = false
 		_active = false
+		_dog_name = ""
 		return
 	_adopted = bool(config.get_value("dog", "adopted", false))
 	_active = _adopted and bool(config.get_value("dog", "active", true))
+	_dog_name = _normalize_name(String(config.get_value("dog", "name", "")))
 
 
 func _save_state() -> void:
 	var config := ConfigFile.new()
 	config.set_value("dog", "adopted", _adopted)
 	config.set_value("dog", "active", _active)
+	config.set_value("dog", "name", _dog_name)
 	config.save(SAVE_PATH)
+
+
+func _normalize_name(value: String) -> String:
+	var normalized := value.replace("\r", "").replace("\n", "").replace("\t", " ").strip_edges()
+	if normalized.length() > MAX_NAME_LENGTH:
+		normalized = normalized.substr(0, MAX_NAME_LENGTH)
+	return normalized

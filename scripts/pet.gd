@@ -138,9 +138,9 @@ var _bubble_lines := [
 	{"text": "今天也很可爱呀 (^_^)", "emoji": "💗"}
 ]
 var _dog_dialogue_lines := [
-	{"text": "小雪球刚才又绕着我转圈啦 (≧▽≦)", "emoji": "🐾"},
+	{"text": "{dog}刚才又绕着我转圈啦 (≧▽≦)", "emoji": "🐾"},
 	{"text": "它一摇尾巴，我就忍不住想抱抱它 (^_^)", "emoji": "💕"},
-	{"text": "小雪球今天也有乖乖陪着我们哦 (ᵔᴥᵔ)", "emoji": "🐾"},
+	{"text": "{dog}今天也有乖乖陪着我们哦 (ᵔᴥᵔ)", "emoji": "🐾"},
 	{"text": "嘘，它好像把球藏到桌角去了 (o_o)", "emoji": "🎾"},
 	{"text": "有它在旁边跑来跑去，桌面都热闹起来啦 (^o^)", "emoji": "✨"}
 ]
@@ -225,6 +225,8 @@ func _ready() -> void:
 		call_deferred("_open_badminton_game")
 	if startup_args.has("--show-dog-home") or user_args.has("--show-dog-home"):
 		call_deferred("_open_dog_home_panel")
+	if startup_args.has("--reopen-dog-home") or user_args.has("--reopen-dog-home"):
+		call_deferred("_debug_reopen_dog_home_panel")
 	if startup_args.has("--adopt-dog") or user_args.has("--adopt-dog"):
 		call_deferred("_on_dog_adoption_requested")
 	if startup_args.has("--show-dog-interaction") or user_args.has("--show-dog-interaction"):
@@ -367,6 +369,7 @@ func _create_care_features() -> void:
 	_dog_companion.home_requested.connect(_open_dog_home_panel)
 	_dog_companion.owner_reached.connect(_on_dog_owner_reached)
 	_dog_companion.availability_changed.connect(_on_dog_availability_changed)
+	_dog_companion.name_changed.connect(_on_dog_name_changed)
 	_dog_companion.care_message.connect(_on_dog_care_message)
 	add_child(_dog_companion)
 
@@ -375,6 +378,7 @@ func _create_care_features() -> void:
 	_dog_home_panel.configure(_cjk_font, _dog_companion.get_sprite_frames())
 	_dog_home_panel.action_requested.connect(_on_dog_home_action)
 	_dog_home_panel.adoption_requested.connect(_on_dog_adoption_requested)
+	_dog_home_panel.name_change_requested.connect(_on_dog_name_change_requested)
 	_dog_home_panel.home_toggle_requested.connect(_on_dog_home_toggle_requested)
 	add_child(_dog_home_panel)
 
@@ -433,6 +437,10 @@ func _on_proactive_message(text: String, emoji: String) -> void:
 	if _scripted_dialogue_time_left > 0.0:
 		return
 	_show_bubble(text, 8.0, emoji)
+
+
+func _dog_display_name() -> String:
+	return _dog_companion.get_display_name() if _dog_companion else "小狗"
 
 
 func _update_dog_runtime(delta: float) -> void:
@@ -494,16 +502,16 @@ func _request_dog_interaction(spontaneous: bool) -> void:
 		return
 	if _dog_interaction_cooldown > 0.0 or not sprite.sprite_frames.has_animation(DOG_INTERACTION_ANIMATION):
 		if not spontaneous:
-			_show_bubble("小雪球刚玩累了，先让它喘口气吧 (ᵔᴥᵔ)", 3.2, "🐾")
+			_show_bubble("%s刚玩累了，先让它喘口气吧 (ᵔᴥᵔ)" % _dog_display_name(), 3.2, "🐾")
 		return
 	_dog_interaction_pending = true
 	_dog_interaction_pending_time = DOG_APPROACH_TIMEOUT
 	_enter_state(State.IDLE)
 	_state_duration = DOG_APPROACH_TIMEOUT + 1.0
 	var approach_lines := [
-		"小雪球，来这里～让我抱一下 (^_^)",
+		"%s，来这里～让我抱一下 (^_^)" % _dog_display_name(),
 		"跑慢一点呀，过来陪我坐会儿 (≧▽≦)",
-		"小雪球又来找我撒娇啦 (ᵔᴥᵔ)"
+		"%s又来找我撒娇啦 (ᵔᴥᵔ)" % _dog_display_name()
 	]
 	var line: String = approach_lines[_rng.randi_range(0, approach_lines.size() - 1)]
 	_show_bubble(line, 4.0, "🐾")
@@ -516,13 +524,13 @@ func _request_dog_interaction(spontaneous: bool) -> void:
 func _on_dog_clicked() -> void:
 	if _proactive_companion:
 		_proactive_companion.mark_user_activity()
-		_proactive_companion.note_interaction("用户刚刚摸了摸小雪球")
+		_proactive_companion.note_interaction("用户刚刚摸了摸白色小狗%s" % _dog_display_name())
 	if state == State.SLEEP or state == State.WAKE:
 		_enter_state(State.IDLE)
-		_show_bubble("小雪球把我也叫醒啦……来一起玩吧 (－ω－)", 3.6, "🐾")
+		_show_bubble("%s把我也叫醒啦……来一起玩吧 (－ω－)" % _dog_display_name(), 3.6, "🐾")
 		return
 	if state == State.ACTIVITY or _dragon_launch_time_left > 0.0:
-		_show_bubble("小雪球在旁边乖乖等着呢 (ᵔᴥᵔ)", 3.2, "🐾")
+		_show_bubble("%s在旁边乖乖等着呢 (ᵔᴥᵔ)" % _dog_display_name(), 3.2, "🐾")
 		return
 	_request_dog_interaction(false)
 
@@ -565,22 +573,43 @@ func _restore_dog_after_interaction() -> void:
 	_schedule_next_dog_interaction(false)
 
 
-func _on_dog_adoption_requested() -> void:
+func _on_dog_adoption_requested(requested_name: String = "测试小狗") -> void:
 	if not _dog_companion or _dog_companion.is_adopted():
 		return
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
-	_dog_companion.adopt(_get_dog_anchor(false), screen)
+	if not _dog_companion.adopt(requested_name, _get_dog_anchor(false), screen):
+		return
+	var dog_name := _dog_companion.get_display_name()
 	_dog_home_panel.hide_panel()
 	_refresh_context_menu_dog_items()
 	_schedule_next_dog_interaction(true)
 	_scripted_dialogue_time_left = 5.0
 	_enter_state(State.IDLE)
 	_state_duration = 6.0
-	_show_bubble("以后这里就是你的家啦。欢迎你，小雪球！ (^_^)", 5.0, "🐾")
+	_show_bubble("以后这里就是你的家啦。欢迎你，%s！ (^_^)" % dog_name, 5.0, "🐾")
 	if _proactive_companion:
-		_proactive_companion.note_interaction("用户刚刚和你一起领养了白色小狗小雪球")
+		_proactive_companion.note_interaction("用户刚刚和你一起领养了白色小狗%s" % dog_name)
+
+
+func _on_dog_name_change_requested(requested_name: String) -> void:
+	if not _dog_companion or not _dog_companion.is_adopted():
+		return
+	var previous_name := _dog_companion.get_display_name()
+	if not _dog_companion.rename(requested_name):
+		return
+	var dog_name := _dog_companion.get_display_name()
+	if dog_name != previous_name:
+		_show_bubble("好呀，以后就叫你%s啦！ (^_^)" % dog_name, 4.0, "🐾")
+		if _proactive_companion:
+			_proactive_companion.note_interaction("用户把白色小狗的名字从%s改成了%s" % [previous_name, dog_name])
+
+
+func _on_dog_name_changed(_dog_name: String) -> void:
+	_refresh_context_menu_dog_items()
+	if _dog_home_panel and _dog_companion:
+		_dog_home_panel.refresh_state(_dog_companion.is_adopted(), _dog_companion.is_available(), _dog_companion.get_dog_name())
 
 
 func _on_dog_home_toggle_requested() -> void:
@@ -598,23 +627,23 @@ func _toggle_dog_at_home() -> void:
 		_finish_activity()
 	if _dog_companion.is_available():
 		_dog_companion.send_home()
-		_show_bubble("小雪球今天先回窝休息啦，晚点再叫它出来 (－ω－)", 4.2, "💤")
+		_show_bubble("%s今天先回窝休息啦，晚点再叫它出来 (－ω－)" % _dog_display_name(), 4.2, "💤")
 	else:
 		var screen := DisplayServer.window_get_current_screen()
 		if screen < 0:
 			screen = 0
 		_dog_companion.come_out(_get_dog_anchor(false), screen)
 		_schedule_next_dog_interaction(true)
-		_show_bubble("小雪球睡醒啦，又来陪我们玩了 (^o^)", 4.0, "🐾")
+		_show_bubble("%s睡醒啦，又来陪我们玩了 (^o^)" % _dog_display_name(), 4.0, "🐾")
 	_refresh_context_menu_dog_items()
 	if _dog_home_panel:
-		_dog_home_panel.refresh_state(_dog_companion.is_adopted(), _dog_companion.is_available())
+		_dog_home_panel.refresh_state(_dog_companion.is_adopted(), _dog_companion.is_available(), _dog_companion.get_dog_name())
 
 
 func _on_dog_availability_changed(adopted: bool, active: bool) -> void:
 	_refresh_context_menu_dog_items()
 	if _dog_home_panel:
-		_dog_home_panel.refresh_state(adopted, active)
+		_dog_home_panel.refresh_state(adopted, active, _dog_companion.get_dog_name() if _dog_companion else "")
 
 
 func _on_dog_home_action(action: String) -> void:
@@ -622,7 +651,7 @@ func _on_dog_home_action(action: String) -> void:
 		_dog_companion.perform_care(action)
 	if _proactive_companion:
 		_proactive_companion.mark_user_activity()
-		_proactive_companion.note_interaction("用户刚刚在小雪球的小屋里照顾了它")
+		_proactive_companion.note_interaction("用户刚刚在%s的小屋里照顾了它" % _dog_display_name())
 
 
 func _on_dog_care_message(message: String, emoji: String) -> void:
@@ -755,7 +784,8 @@ func _update_proactive_context() -> void:
 		"foreground_app": foreground_info,
 		"dog_companion": {
 			"adopted": _dog_companion != null and _dog_companion.is_adopted(),
-			"active": _dog_companion != null and _dog_companion.is_available()
+			"active": _dog_companion != null and _dog_companion.is_available(),
+			"name": _dog_companion.get_dog_name() if _dog_companion else ""
 		}
 	})
 
@@ -803,7 +833,13 @@ func _open_dog_home_panel() -> void:
 	var panel_y := clampi(pet_position.y - 25, usable.position.y, usable.end.y - panel_size.y)
 	var adopted := _dog_companion != null and _dog_companion.is_adopted()
 	var dog_active := _dog_companion != null and _dog_companion.is_available()
-	_dog_home_panel.open_at(Vector2i(panel_x, panel_y), adopted, dog_active)
+	var dog_name := _dog_companion.get_dog_name() if _dog_companion else ""
+	_dog_home_panel.open_at(Vector2i(panel_x, panel_y), adopted, dog_active, dog_name)
+
+
+func _debug_reopen_dog_home_panel() -> void:
+	await get_tree().create_timer(0.35).timeout
+	_open_dog_home_panel()
 
 
 func _open_ai_chat_panel() -> void:
@@ -1030,7 +1066,8 @@ func _say_random(duration := 3.0) -> void:
 			return
 	if _dog_companion and _dog_companion.is_available() and _rng.randf() < 0.45:
 		var dog_line: Dictionary = _dog_dialogue_lines[_rng.randi_range(0, _dog_dialogue_lines.size() - 1)]
-		_show_bubble(dog_line["text"], duration + 0.4, dog_line["emoji"])
+		var dog_text := String(dog_line["text"]).replace("{dog}", _dog_display_name())
+		_show_bubble(dog_text, duration + 0.4, dog_line["emoji"])
 		return
 	var line: Dictionary = _bubble_lines[_rng.randi_range(0, _bubble_lines.size() - 1)]
 	_show_bubble(line["text"], duration, line["emoji"])
@@ -1052,8 +1089,8 @@ func _create_context_menu() -> void:
 	_context_menu.name = "PetContextMenu"
 	_context_menu.min_size = Vector2i(224, 0)
 	_context_menu.add_item("打开她的日常", MENU_CARE)
-	_context_menu.add_item("小雪球的小屋", MENU_DOG_HOME)
-	_context_menu.add_item("让小雪球回窝", MENU_DOG_TOGGLE)
+	_context_menu.add_item("小狗的小屋", MENU_DOG_HOME)
+	_context_menu.add_item("让小狗回窝", MENU_DOG_TOGGLE)
 	_context_menu.add_separator()
 	_context_menu.add_item("和她说说话", MENU_TALK)
 	_context_menu.add_check_item("自动散步", MENU_TOGGLE_WANDER)
@@ -1137,8 +1174,9 @@ func _refresh_context_menu_dog_items() -> void:
 		_context_menu.set_item_text(toggle_index, "尚未领养小狗")
 		_context_menu.set_item_disabled(toggle_index, true)
 	else:
-		_context_menu.set_item_text(home_index, "小雪球的小屋")
-		_context_menu.set_item_text(toggle_index, "让小雪球回窝" if _dog_companion.is_available() else "叫小雪球出来")
+		var dog_name := _dog_companion.get_display_name()
+		_context_menu.set_item_text(home_index, dog_name + "的小屋")
+		_context_menu.set_item_text(toggle_index, ("让%s回窝" % dog_name) if _dog_companion.is_available() else ("叫%s出来" % dog_name))
 		_context_menu.set_item_disabled(toggle_index, false)
 
 
@@ -1591,9 +1629,10 @@ func _finish_activity() -> void:
 	if completed_activity == DOG_INTERACTION_ANIMATION:
 		_restore_dog_after_interaction()
 		var dog_line: Dictionary = _dog_dialogue_lines[_rng.randi_range(0, _dog_dialogue_lines.size() - 1)]
-		_show_bubble(dog_line["text"], 4.2, dog_line["emoji"])
+		var dog_text := String(dog_line["text"]).replace("{dog}", _dog_display_name())
+		_show_bubble(dog_text, 4.2, dog_line["emoji"])
 		if _proactive_companion:
-			_proactive_companion.note_interaction("你刚刚主动抱了抱小雪球，和它玩了一会儿")
+			_proactive_companion.note_interaction("你刚刚主动抱了抱%s，和它玩了一会儿" % _dog_display_name())
 
 
 func _choose_walk_direction() -> void:

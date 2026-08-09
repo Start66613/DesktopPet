@@ -340,3 +340,12 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `scripts/pet.gd`：新增五条本地小狗话题、主动靠近调度、领养剧情台词和回窝反馈；`scripts/proactive_companion.gd` 接收“小雪球是否已领养、是否在桌面”的结构化状态，AI 与本地限流兜底都可以自然谈到小狗，但不虚构屏幕或具体行为。
 - 调试参数：`--show-dog-home` 直达领养/小屋窗口，`--adopt-dog --show-dog-interaction` 在隔离 `APPDATA` 下验证领养、靠近和互动完整流程。
 - Godot 4.7.1 编辑器导入通过；无领养存档的小屋运行、隔离领养存档写入、主动靠近互动和最终回归均无脚本错误。遵循精简 QA，只进行一次最终可见检查，记录为 `logs/dog_adoption_panel_final.png`，检查后仅用坐标调整名称文字，不再追加截图。
+
+## 2026-08-09 小狗命名与小屋窗口稳定性 1.2
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260809-122130`；备份包含 `3781` 个条目、文件总计 `237156659` 字节。
+- `scripts/dog_companion.gd`：`user://dog_companion.cfg` 新增持久化 `name`；首次领养必须输入名字，领养后仍可改名，名称限制为 8 个字符。旧存档没有 `name` 时使用“小狗”作为显示称呼，不自动覆盖用户存档。
+- `scripts/dog_home_panel.gd`：预览区新增名字输入框与淡蓝确认按钮；未领养时输入名字后完成领养，已领养时可随时保存新名字。原生小屋已经可见时，重复打开不再重设 `Window.mode`、透明标志或播放开窗 Tween，只恢复鼠标接收并聚焦，避免 Windows 下窗口变成透明空壳。
+- `scripts/pet.gd`：女孩右键菜单、小屋标题、回窝/叫出提示、人狗互动气泡、养护反馈和主动陪伴事件全部改用动态名字；`scripts/proactive_companion.gd` 的模型上下文与本地兜底台词同步读取 `dog_companion.name`，代码中不再硬编码旧称呼。
+- 调试参数新增 `--reopen-dog-home`，用于在 `--show-dog-home` 后自动再次打开小屋并覆盖重复打开分支，不需要模拟鼠标点击。
+- Godot 4.7.1 编辑器解析通过；隔离存档自动领养后正确写入 `name="测试小狗"`，旧版无名存档及重复打开小屋的 headless 回归均退出码为 0，日志中无脚本错误。
