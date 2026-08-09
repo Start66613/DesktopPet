@@ -3,29 +3,36 @@ class_name PetDogCompanion
 
 signal dog_clicked
 signal home_requested
+signal owner_reached
+signal availability_changed(adopted: bool, active: bool)
 signal care_message(message: String, emoji: String)
 
 const WINDOW_SIZE := Vector2i(128, 128)
 const SPRITE_SCALE := 2.0
 const WALK_SPEED := 48.0
+const FOLLOW_SPEED := 92.0
+const APPROACH_SPEED := 92.0
 const PLAY_WALK_SPEED := 76.0
+const MAX_ROAM_DISTANCE := 300.0
+const FOLLOW_DISTANCE := 180.0
+const APPROACH_REACHED_DISTANCE := 18.0
 const DRAG_THRESHOLD := 6.0
 const ALPHA_THRESHOLD := 0.04
+const SAVE_PATH := "user://dog_companion.cfg"
 const IDLE_FRAMES_PATH := "res://assets/dog/source/idle/1786211809628-5htktvepw1s/1786211809628-5htktvepw1s_frames.tres"
-const WALK_FRAMES_PATH := "res://assets/dog/source/walk_8dir/sprite-animations/sprite-animations_frames.tres"
 
-const WALK_ANIMATION_MAP := {
-	"walk_right": "1786212275164-hmmdbhhvsb4",
-	"walk_left": "1786212452832-lk00vpcg9eb",
-	"walk_down": "1786212524262-7beqpqrhhq9",
-	"walk_down_left": "1786212560196-zqkw5xxdmb",
-	"walk_down_right": "1786244060394-3vxjedl7sj",
-	"walk_up_left": "1786244074452-igpnqpivex",
-	"walk_up": "1786244089872-e75ae95cpq",
-	"walk_up_right": "1786244156078-gvvyus8nph"
+const WALK_FRAME_PATHS := {
+	"walk_left": "res://assets/dog/source/directions/left/1786212275164-hmmdbhhvsb4/1786212275164-hmmdbhhvsb4_frames.tres",
+	"walk_right": "res://assets/dog/source/directions/right/1786212452832-lk00vpcg9eb/1786212452832-lk00vpcg9eb_frames.tres",
+	"walk_down_left": "res://assets/dog/source/directions/down_left/1786244060394-3vxjedl7sj/1786244060394-3vxjedl7sj_frames.tres",
+	"walk_down": "res://assets/dog/source/directions/down/1786212524262-7beqpqrhhq9/1786212524262-7beqpqrhhq9_frames.tres",
+	"walk_down_right": "res://assets/dog/source/directions/down_right/1786212560196-zqkw5xxdmb/1786212560196-zqkw5xxdmb_frames.tres",
+	"walk_up_right": "res://assets/dog/source/directions/up_right/1786244074452-igpnqpivex/1786244074452-igpnqpivex_frames.tres",
+	"walk_up": "res://assets/dog/source/directions/up/1786244089872-e75ae95cpq/1786244089872-e75ae95cpq_frames.tres",
+	"walk_up_left": "res://assets/dog/source/directions/up_left/1786244156078-gvvyus8nph/1786244156078-gvvyus8nph_frames.tres"
 }
 
-enum State { IDLE, WALK, REST }
+enum State { IDLE, WALK, REST, APPROACH }
 
 var _sprite: AnimatedSprite2D
 var _frames: SpriteFrames
@@ -39,6 +46,11 @@ var _screen_index := 0
 var _rng := RandomNumberGenerator.new()
 var _playful_until := 0.0
 var _hidden_for_interaction := false
+var _adopted := false
+var _active := false
+var _owner_anchor := Vector2.ZERO
+var _has_owner_anchor := false
+var _approach_target := Vector2.ZERO
 var _frame_polygons: Dictionary = {}
 var _dragging := false
 var _did_drag := false
@@ -62,10 +74,13 @@ func _init() -> void:
 func configure(initial_position: Vector2i, screen_index: int) -> void:
 	_initial_position = initial_position
 	_screen_index = maxi(screen_index, 0)
+	_owner_anchor = Vector2(initial_position)
+	_has_owner_anchor = true
 
 
 func _ready() -> void:
 	_rng.randomize()
+	_load_saved_state()
 	_frames = _build_frames()
 	_sprite = AnimatedSprite2D.new()
 	_sprite.name = "DogSprite"
@@ -80,69 +95,157 @@ func _ready() -> void:
 	_window_position = Vector2(_clamp_position(_initial_position))
 	position = Vector2i(_window_position.round())
 	_enter_state(State.IDLE)
-	call_deferred("_show_on_desktop")
+	call_deferred("_apply_initial_visibility")
 
 
-func _show_on_desktop() -> void:
+func _apply_initial_visibility() -> void:
 	mode = Window.MODE_WINDOWED
-	show()
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
 	transparent_bg = true
-	_update_passthrough()
+	if _adopted and _active:
+		show()
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
+		_update_passthrough()
+	else:
+		hide()
+	availability_changed.emit(_adopted, _active)
 
 
 func _process(delta: float) -> void:
-	if _hidden_for_interaction or not visible or _dragging:
+	if not is_available() or _hidden_for_interaction or not visible or _dragging:
 		return
 	_state_time += delta
 	_playful_until = maxf(_playful_until - delta, 0.0)
 	match _state:
 		State.IDLE, State.REST:
-			if _state_time >= _state_duration:
+			if _state == State.IDLE and _has_owner_anchor and _window_position.distance_to(_owner_anchor) > FOLLOW_DISTANCE:
+				_enter_state(State.WALK)
+			elif _state_time >= _state_duration:
 				_enter_state(State.WALK if _state == State.IDLE else State.IDLE)
 		State.WALK:
-			_move_window(delta)
+			_move_window(delta, _current_walk_speed())
 			if _state_time >= _state_duration:
 				_enter_state(State.IDLE)
+		State.APPROACH:
+			_update_approach(delta)
 
 
 func get_sprite_frames() -> SpriteFrames:
 	return _frames
 
 
+func is_adopted() -> bool:
+	return _adopted
+
+
+func is_available() -> bool:
+	return _adopted and _active
+
+
+func adopt(screen_position: Vector2i, screen_index: int) -> void:
+	_adopted = true
+	_active = true
+	_hidden_for_interaction = false
+	_screen_index = maxi(screen_index, 0)
+	_window_position = Vector2(_clamp_position(screen_position))
+	position = Vector2i(_window_position.round())
+	_save_state()
+	show()
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
+	_enter_state(State.IDLE)
+	_update_passthrough()
+	availability_changed.emit(_adopted, _active)
+
+
+func send_home() -> void:
+	if not _adopted:
+		return
+	_active = false
+	_hidden_for_interaction = false
+	_save_state()
+	hide()
+	availability_changed.emit(_adopted, _active)
+
+
+func come_out(screen_position: Vector2i, screen_index: int) -> void:
+	if not _adopted:
+		return
+	_active = true
+	_hidden_for_interaction = false
+	_screen_index = maxi(screen_index, 0)
+	_window_position = Vector2(_clamp_position(screen_position))
+	position = Vector2i(_window_position.round())
+	_save_state()
+	show()
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
+	_enter_state(State.IDLE)
+	_update_passthrough()
+	availability_changed.emit(_adopted, _active)
+
+
+func set_owner_anchor(screen_position: Vector2i, screen_index: int) -> void:
+	_owner_anchor = Vector2(screen_position)
+	_has_owner_anchor = true
+	_screen_index = maxi(screen_index, 0)
+
+
+func request_owner_interaction(screen_position: Vector2i, screen_index: int) -> void:
+	if not is_available() or _hidden_for_interaction:
+		return
+	_screen_index = maxi(screen_index, 0)
+	_approach_target = Vector2(_clamp_position(screen_position))
+	_enter_state(State.APPROACH)
+
+
+func cancel_owner_interaction() -> void:
+	if _state == State.APPROACH:
+		_enter_state(State.IDLE)
+
+
 func hide_for_interaction() -> void:
+	if not is_available():
+		return
 	_hidden_for_interaction = true
 	hide()
 
 
 func restore_after_interaction(screen_position: Vector2i, screen_index: int) -> void:
 	_hidden_for_interaction = false
+	if not is_available():
+		hide()
+		return
 	_screen_index = maxi(screen_index, 0)
 	_window_position = Vector2(_clamp_position(screen_position))
 	position = Vector2i(_window_position.round())
 	show()
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
 	_enter_state(State.IDLE)
 	call_deferred("_update_passthrough")
 
 
 func perform_care(action: String) -> void:
+	if not _adopted:
+		return
 	match action:
 		"feed":
-			_enter_state(State.IDLE)
-			_state_duration = 5.5
+			if is_available():
+				_enter_state(State.IDLE)
+				_state_duration = 5.5
 			care_message.emit("小雪球吃得好香，尾巴都摇起来啦 (^_^)", "🍖")
 		"drink":
-			_enter_state(State.IDLE)
-			_state_duration = 4.5
+			if is_available():
+				_enter_state(State.IDLE)
+				_state_duration = 4.5
 			care_message.emit("咕嘟咕嘟，喝完水精神多啦 (ᵔᴥᵔ)", "💧")
 		"play":
-			_playful_until = 8.0
-			_enter_state(State.WALK)
-			_state_duration = 8.0
+			if is_available():
+				_playful_until = 8.0
+				_enter_state(State.WALK)
+				_state_duration = 8.0
 			care_message.emit("球球飞出去啦，小雪球快追！ (^o^)", "🎾")
 		"rest":
-			_enter_state(State.REST)
-			_state_duration = 8.0
+			if is_available():
+				_enter_state(State.REST)
+				_state_duration = 8.0
 			care_message.emit("小雪球在软软的窝里团成一团啦 (－ω－) zzZ", "💤")
 
 
@@ -160,9 +263,15 @@ func _enter_state(next_state: int) -> void:
 		State.REST:
 			_state_duration = 8.0
 			_play("idle")
+		State.APPROACH:
+			_state_duration = 10.0
+			_update_direction_toward(_approach_target)
 
 
 func _choose_walk_direction() -> void:
+	if _has_owner_anchor and _window_position.distance_to(_owner_anchor) > FOLLOW_DISTANCE:
+		_update_direction_toward(_owner_anchor)
+		return
 	var directions := [
 		Vector2.LEFT,
 		Vector2.RIGHT,
@@ -174,6 +283,15 @@ func _choose_walk_direction() -> void:
 		Vector2(1.0, 1.0)
 	]
 	_move_direction = directions[_rng.randi_range(0, directions.size() - 1)].normalized()
+
+
+func _update_direction_toward(target: Vector2) -> void:
+	var offset := target - _window_position
+	if offset.length_squared() <= 0.01:
+		_move_direction = Vector2.DOWN
+	else:
+		_move_direction = offset.normalized()
+	_update_walk_animation()
 
 
 func _update_walk_animation() -> void:
@@ -197,11 +315,20 @@ func _update_walk_animation() -> void:
 	_play(animation_name)
 
 
-func _move_window(delta: float) -> void:
+func _current_walk_speed() -> float:
+	if _playful_until > 0.0:
+		return PLAY_WALK_SPEED
+	if _has_owner_anchor and _window_position.distance_to(_owner_anchor) > FOLLOW_DISTANCE:
+		return FOLLOW_SPEED
+	return WALK_SPEED
+
+
+func _move_window(delta: float, speed: float) -> void:
+	if _state == State.WALK and _has_owner_anchor and _window_position.distance_to(_owner_anchor) > MAX_ROAM_DISTANCE:
+		_update_direction_toward(_owner_anchor)
 	var usable := DisplayServer.screen_get_usable_rect(_screen_index)
 	var min_position := Vector2(usable.position)
 	var max_position := Vector2(usable.end - WINDOW_SIZE)
-	var speed := PLAY_WALK_SPEED if _playful_until > 0.0 else WALK_SPEED
 	_window_position += _move_direction * speed * delta
 	var bounced := false
 	if _window_position.x <= min_position.x or _window_position.x >= max_position.x:
@@ -218,8 +345,26 @@ func _move_window(delta: float) -> void:
 		_update_walk_animation()
 
 
+func _update_approach(delta: float) -> void:
+	var distance := _window_position.distance_to(_approach_target)
+	if distance <= APPROACH_REACHED_DISTANCE:
+		_window_position = _approach_target
+		position = Vector2i(_window_position.round())
+		_enter_state(State.IDLE)
+		owner_reached.emit()
+		return
+	if _state_time >= _state_duration:
+		_window_position = _approach_target
+		position = Vector2i(_window_position.round())
+		_enter_state(State.IDLE)
+		owner_reached.emit()
+		return
+	_update_direction_toward(_approach_target)
+	_move_window(delta, APPROACH_SPEED)
+
+
 func _input(event: InputEvent) -> void:
-	if _hidden_for_interaction:
+	if _hidden_for_interaction or not is_available():
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 		home_requested.emit()
@@ -239,6 +384,8 @@ func _input(event: InputEvent) -> void:
 			if was_click:
 				_play_click_motion()
 				dog_clicked.emit()
+			else:
+				_enter_state(State.IDLE)
 			_update_passthrough()
 	elif event is InputEventMouseMotion and _dragging:
 		var mouse_delta := DisplayServer.mouse_get_position() - _drag_mouse_start
@@ -266,16 +413,19 @@ func _build_frames() -> SpriteFrames:
 		var idle_names := idle_source.get_animation_names()
 		if not idle_names.is_empty():
 			_copy_animation(target, "idle", idle_source, idle_names[0])
-	var walk_source := load(WALK_FRAMES_PATH) as SpriteFrames
-	if walk_source:
-		for target_name in WALK_ANIMATION_MAP:
-			var source_name: String = WALK_ANIMATION_MAP[target_name]
-			if walk_source.has_animation(source_name):
-				_copy_animation(target, target_name, walk_source, source_name)
+	for target_name in WALK_FRAME_PATHS:
+		var source := load(String(WALK_FRAME_PATHS[target_name])) as SpriteFrames
+		if not source:
+			continue
+		var source_names := source.get_animation_names()
+		if not source_names.is_empty():
+			_copy_animation(target, target_name, source, source_names[0])
 	return target
 
 
 func _copy_animation(target: SpriteFrames, target_name: String, source: SpriteFrames, source_name: String) -> void:
+	if target.has_animation(target_name):
+		target.remove_animation(target_name)
 	target.add_animation(target_name)
 	target.set_animation_loop(target_name, true)
 	target.set_animation_speed(target_name, source.get_animation_speed(source_name))
@@ -334,7 +484,7 @@ func _texture_to_window(x: float, y: float, texture_width: int, texture_height: 
 
 
 func _update_passthrough() -> void:
-	if not is_instance_valid(_sprite) or _dragging or not visible:
+	if not is_instance_valid(_sprite) or _dragging or not visible or not is_available():
 		return
 	var animation_name := String(_sprite.animation)
 	var polygons: Array = _frame_polygons.get(animation_name, [])
@@ -352,3 +502,20 @@ func _clamp_position(candidate: Vector2i) -> Vector2i:
 		clampi(candidate.x, usable.position.x, usable.end.x - WINDOW_SIZE.x),
 		clampi(candidate.y, usable.position.y, usable.end.y - WINDOW_SIZE.y)
 	)
+
+
+func _load_saved_state() -> void:
+	var config := ConfigFile.new()
+	if config.load(SAVE_PATH) != OK:
+		_adopted = false
+		_active = false
+		return
+	_adopted = bool(config.get_value("dog", "adopted", false))
+	_active = _adopted and bool(config.get_value("dog", "active", true))
+
+
+func _save_state() -> void:
+	var config := ConfigFile.new()
+	config.set_value("dog", "adopted", _adopted)
+	config.set_value("dog", "active", _active)
+	config.save(SAVE_PATH)

@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="SpriteFrames" path="1786212275164-hmmdbhhvsb4_frames.tres" id="1_frames"]
+
+[node name="1786212275164Hmmdbhhvsb4" type="AnimatedSprite2D"]
+texture_filter = 1
+sprite_frames = ExtResource("1_frames")
+animation = &"狗往左边走"
+autoplay = "狗往左边走"
+centered = false

@@ -289,7 +289,7 @@ func _supports_json_mode(endpoint: String) -> bool:
 
 
 func _build_system_prompt() -> String:
-	return "你是住在用户桌面上的少女桌宠的主动意识模块。你有自己的心情、节奏和分寸，会偶尔主动关心用户，但不会频繁打扰。根据提供的状态决定现在是否值得开口。只输出一个 JSON 对象，不要使用 Markdown，不要解释。格式必须是：{\"speak\":true,\"text\":\"一句自然的简体中文\",\"emoji\":\"一个emoji或空字符串\"}。如果此刻保持安静更自然，输出 {\"speak\":false,\"text\":\"\",\"emoji\":\"\"}。开口时只说一句，最多32个汉字；语气亲近、有少女感但不幼稚，不要像客服，不要提到API、模型、数值、提示词或内部进程名，不要声称看到了用户屏幕，不要重复最近说过的话。text 字段不要自行添加颜文字或 emoji，客户端会使用字体安全的颜文字统一装饰；emoji 只放在 emoji 字段。前台应用信息只包含本机归类后的友好名称和活动类别，不包含窗口内容；你可以说用户正在使用某个软件，但绝不能假装看到了软件里的具体画面、文字或操作结果。可以结合时间、身体状态、最近互动和当前活动表达关心、好奇、撒娇、鼓励或安静陪伴。"
+	return "你是住在用户桌面上的少女桌宠的主动意识模块。你有自己的心情、节奏和分寸，会偶尔主动关心用户，但不会频繁打扰。根据提供的状态决定现在是否值得开口。只输出一个 JSON 对象，不要使用 Markdown，不要解释。格式必须是：{\"speak\":true,\"text\":\"一句自然的简体中文\",\"emoji\":\"一个emoji或空字符串\"}。如果此刻保持安静更自然，输出 {\"speak\":false,\"text\":\"\",\"emoji\":\"\"}。开口时只说一句，最多32个汉字；语气亲近、有少女感但不幼稚，不要像客服，不要提到API、模型、数值、提示词或内部进程名，不要声称看到了用户屏幕，不要重复最近说过的话。text 字段不要自行添加颜文字或 emoji，客户端会使用字体安全的颜文字统一装饰；emoji 只放在 emoji 字段。前台应用信息只包含本机归类后的友好名称和活动类别，不包含窗口内容；你可以说用户正在使用某个软件，但绝不能假装看到了软件里的具体画面、文字或操作结果。如果状态显示已经领养白色小狗小雪球，可以偶尔自然地谈到它或表达对它的喜欢，但不要虚构没有提供的具体行为。可以结合时间、身体状态、最近互动和当前活动表达关心、好奇、撒娇、鼓励或安静陪伴。"
 
 
 func _build_context_prompt() -> String:
@@ -299,6 +299,10 @@ func _build_context_prompt() -> String:
 		stats = _care_system.get_stats()
 	var time_label := "%02d:%02d" % [int(now.get("hour", 0)), int(now.get("minute", 0))]
 	var state_name := String(_runtime_context.get("state", "idle"))
+	var dog_info: Dictionary = _runtime_context.get("dog_companion", {})
+	var dog_text := "尚未领养"
+	if bool(dog_info.get("adopted", false)):
+		dog_text = "已领养小雪球，正在桌面附近陪伴" if bool(dog_info.get("active", false)) else "已领养小雪球，正在窝里休息"
 	var events_text := "暂无"
 	if not _recent_events.is_empty():
 		events_text = "；".join(PackedStringArray(_recent_events))
@@ -338,9 +342,10 @@ func _build_context_prompt() -> String:
 			String(required_app.get("label", "当前软件")),
 			String(required_app.get("activity", "使用电脑"))
 		]
-	return "当前时间：%s。桌宠状态：%s。用户已经约%d分钟没有直接互动。桌宠已陪伴本次会话约%d分钟。饱腹%d，水分%d，心情%d，好感%d，精力%d。前台应用：%s。最近事件：%s。最近主动说过：%s。%s" % [
+	return "当前时间：%s。桌宠状态：%s。小狗状态：%s。用户已经约%d分钟没有直接互动。桌宠已陪伴本次会话约%d分钟。饱腹%d，水分%d，心情%d，好感%d，精力%d。前台应用：%s。最近事件：%s。最近主动说过：%s。%s" % [
 		time_label,
 		state_name,
+		dog_text,
 		floori(_seconds_since_interaction / 60.0),
 		floori(_session_seconds / 60.0),
 		roundi(float(stats.get("fullness", 75.0))),
@@ -519,6 +524,14 @@ func _get_contextual_fallback_lines() -> Array:
 			lines.append({"text": "肚子在小声提醒我，该找点好吃的啦。", "emoji": "🍰"})
 		if float(stats.get("energy", 75.0)) < 35.0:
 			lines.append({"text": "稍微有点困啦，要不要一起休息一下？", "emoji": "💤"})
+
+	var dog_info: Dictionary = _runtime_context.get("dog_companion", {})
+	if bool(dog_info.get("adopted", false)):
+		if bool(dog_info.get("active", false)):
+			lines.append({"text": "小雪球又在旁边摇尾巴啦，桌面一下热闹起来了。", "emoji": "🐾"})
+			lines.append({"text": "有小雪球陪我们一起待着，今天也不孤单。", "emoji": "💕"})
+		else:
+			lines.append({"text": "小雪球正在窝里休息，等它醒了再一起玩吧。", "emoji": "💤"})
 
 	return lines
 
