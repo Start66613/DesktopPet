@@ -102,6 +102,46 @@
 
 第一版不必生成任何人物互动动画。先用 `[仅小狗]` 的靠近、坐下、摇尾、睡在旁边和心虚动作完成可玩的陪伴原型；第二版再优先补 `摸头`、`训话` 和 `握手` 三组分层动画，最后才制作成本较高的抱起与拥抱同帧动画。
 
+## 拖动桌面窗口动画
+
+不要把 Windows 窗口、标题栏或应用图标画进小狗动画。运行时由 Godot 把小狗贴在目标窗口的左下角，原生辅助程序同步移动真实窗口；素材只负责表现小狗咬住一个固定点并向后拉。这样任何软件窗口都能复用同一套动作。
+
+### 画布与生成顺序
+
+- 使用 `128x128` 像素透明画布，把现有 `64x64` 小狗原尺寸放进去，不要拉伸。
+- 小狗面向右侧，嘴部固定在画布右侧约 `x=100`，脚底固定在约 `y=105`，左侧留出身体后仰空间。
+- 先通过图片编辑生成一张“咬住右侧无形固定点、四脚发力”的动作起始姿势，再用这张图生成动画。
+- 第一套生成 `8` 帧、不循环的抓住过渡；第二套生成 `8` 帧、循环的拉扯动作。松口直接倒放抓住过渡，不需要第三次生成。
+- 左右方向由 Godot 水平镜像，白色小狗没有明显不对称花纹，不必浪费额度生成两套。
+
+**抓住窗口边缘，8 帧非循环：**
+
+> Animate this exact snow-white line-art puppy reaching toward one invisible fixed point on its right, gently closing its mouth around that point, planting all four paws, and ending in a clear braced pulling pose. Keep the muzzle at the same right-side anchor in the final frames. Preserve the puppy's identity, pale-blue collar, native sprite size, crisp pixel edges, and ground line. Transparent 128 by 128 pixel canvas. No window, no title bar, no text, no extra object.
+
+**持续拉扯窗口，8 帧循环：**
+
+> Animate this exact snow-white line-art puppy tugging an invisible fixed point to its right in a small seamless loop. Its mouth and head stay anchored near the same right-side point while the body leans backward, the front paws brace, the rear paws scramble lightly, the ears bounce, and the tail becomes tense. Preserve its identity, pale-blue collar, native sprite size, crisp pixel edges, and fixed ground line. Transparent 128 by 128 pixel canvas. No window, no title bar, no text, no extra object.
+
+程序侧应增加“允许小狗恶作剧”的明确开关，只选择普通、可见、非全屏的用户窗口，并排除桌宠自身、系统窗口、桌面、任务栏和需要管理员权限的窗口。每次只移动约 `40-90px`，保留一键撤销和自动还原，不触碰桌面文件或图标。
+
+## 女孩训斥与小狗认错
+
+这个动作没有身体接触，女孩和小狗应分别生成透明动画，再由 Godot 同步播放。女孩只对右下方的固定空位置做动作，提示词中不要生成人或狗；小狗使用现有坐下过渡进入认错待机，不必重新生成坐下过程。
+
+**女孩温和训斥，建议 12 帧非循环：**
+
+先用女孩当前待机帧做图片编辑，生成“一只手叉腰，另一只手指向右下方空位置”的动作起始图，再做关键帧动画。
+
+> Animate this exact girl giving one short, affectionate scolding gesture toward an empty spot at her lower right. She places one hand on her hip, points downward once with the other hand, gives a small disapproving head shake, and ends in a calm hands-on-hip pose. Her expression is mildly stern but caring, never angry or aggressive. Preserve her exact face, hair, outfit, proportions, sprite scale, pixel style, and fixed foot anchor. Transparent canvas. No dog, no text, no speech bubble, no extra character.
+
+**小狗心虚待机，8 帧循环：**
+
+使用现有坐下待机首帧作为参考，先编辑成耳朵放低、抬眼偷看的认错姿势，再生成循环。
+
+> Animate this exact seated snow-white line-art puppy looking adorably guilty in a subtle seamless loop. Its ears stay lowered, it glances upward toward the left, blinks once, lowers its head slightly, and makes one tiny nervous tail tap while remaining seated. Preserve its identity, pale-blue collar, native sprite size, crisp pixel edges, and fixed ground anchor. Transparent 64 by 64 pixel canvas. No girl, no text, no props, no tears, no dramatic shaking.
+
+实装时先让小狗靠近女孩并播放现有坐下过渡，再同步播放 `girl_scold_dog` 与 `dog_guilty_idle`。女孩说一句带名字的轻度提醒，约 2-3 秒后小狗倒放坐下过渡站起；不使用降低好感度或强烈惩罚，保持可爱陪伴基调。
+
 ## 淡蓝 UI 合集
 
 建议一次生成一张 `4:3`、2K、Detailed 的 UI sheet，背景移除选 Standard。先不要生成任何文字，文字由 Godot 原生绘制，避免乱码和无法复用。

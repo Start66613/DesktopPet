@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="SpriteFrames" path="1786250153836-wdm8vfgk65p_frames.tres" id="1_frames"]
+
+[node name="1786250153836Wdm8vfgk65p" type="AnimatedSprite2D"]
+texture_filter = 1
+sprite_frames = ExtResource("1_frames")
+animation = &"坐下过渡"
+autoplay = "坐下过渡"
+centered = false

@@ -1,0 +1,10 @@
+[gd_scene format=3]
+
+[ext_resource type="SpriteFrames" path="1786251153687-durjeh5vxcq_frames.tres" id="1_frames"]
+
+[node name="1786251153687Durjeh5vxcq" type="AnimatedSprite2D"]
+texture_filter = 1
+sprite_frames = ExtResource("1_frames")
+animation = &"狗狗开心"
+autoplay = "狗狗开心"
+centered = false

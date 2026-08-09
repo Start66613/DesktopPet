@@ -349,3 +349,13 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `scripts/pet.gd`：女孩右键菜单、小屋标题、回窝/叫出提示、人狗互动气泡、养护反馈和主动陪伴事件全部改用动态名字；`scripts/proactive_companion.gd` 的模型上下文与本地兜底台词同步读取 `dog_companion.name`，代码中不再硬编码旧称呼。
 - 调试参数新增 `--reopen-dog-home`，用于在 `--show-dog-home` 后自动再次打开小屋并覆盖重复打开分支，不需要模拟鼠标点击。
 - Godot 4.7.1 编辑器解析通过；隔离存档自动领养后正确写入 `name="测试小狗"`，旧版无名存档及重复打开小屋的 headless 回归均退出码为 0，日志中无脚本错误。
+
+## 2026-08-09 小狗自然动作 1.3
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260809-125636`；备份包含 `3801` 个条目、文件总计 `237520969` 字节。
+- `assets/dog/packages/actions/` 归档用户提供的睡觉待机、睡觉过渡、坐下待机、坐下过渡和开心五份原始 ZIP；`assets/dog/source/actions/` 保留对应 Meowa Godot 导出。五套均为透明 `64x64`、8 帧素材。
+- `scripts/dog_companion.gd`：桌面小狗显示比例从 `2.0` 调整为 `1.7`，透明点击轮廓继续按缩放后的逐帧 Alpha 计算。状态机新增坐下、睡觉、起身和开心状态；坐下与睡觉过渡非循环，结束后进入各自待机，离开时倒放过渡。
+- 小狗在普通待机结束后约 `24%` 概率坐下、`10%` 概率睡觉；坐姿持续约 `6-11` 秒，睡眠持续约 `12-24` 秒。喂食、喝水、领养和从窝中叫出会循环播放开心动作约 `2.6` 秒，“回窝休息”会直接进入睡觉链路。
+- `tools/dog_actions_qa.gd`：验证五套动画存在、每套 8 帧、循环标记、开心反馈，以及睡下/醒来、坐下/站起完整状态切换。最终输出 `DOG_ACTIONS_QA_OK animations=5 frames_each=8 scale=1.7`。
+- `docs/DOG_SYSTEM_MEOWA_PROMPTS.md`：新增拖动真实桌面窗口的分层实现、两套小狗拉扯动画提示词，以及女孩训斥和小狗认错的分层生成流程与英文提示词。
+- Godot 4.7.1 资源导入和脚本解析通过；完整桌宠场景在隔离领养存档下运行 20 秒退出码为 0，无脚本错误。

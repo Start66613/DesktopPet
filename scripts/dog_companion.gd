@@ -9,7 +9,7 @@ signal name_changed(name: String)
 signal care_message(message: String, emoji: String)
 
 const WINDOW_SIZE := Vector2i(128, 128)
-const SPRITE_SCALE := 2.0
+const SPRITE_SCALE := 1.7
 const WALK_SPEED := 48.0
 const FOLLOW_SPEED := 92.0
 const APPROACH_SPEED := 92.0
@@ -35,7 +35,30 @@ const WALK_FRAME_PATHS := {
 	"walk_up_left": "res://assets/dog/source/directions/up_left/1786244156078-gvvyus8nph/1786244156078-gvvyus8nph_frames.tres"
 }
 
-enum State { IDLE, WALK, REST, APPROACH }
+const ACTION_FRAME_SPECS := {
+	"sit_enter": {
+		"path": "res://assets/dog/source/actions/sit_enter/1786250153836-wdm8vfgk65p/1786250153836-wdm8vfgk65p_frames.tres",
+		"loop": false
+	},
+	"sit_idle": {
+		"path": "res://assets/dog/source/actions/sit_idle/1786250245040-32hgk2p6hdb/1786250245040-32hgk2p6hdb_frames.tres",
+		"loop": true
+	},
+	"sleep_enter": {
+		"path": "res://assets/dog/source/actions/sleep_enter/1786250305397-ntrhhhs7el/1786250305397-ntrhhhs7el_frames.tres",
+		"loop": false
+	},
+	"sleep_idle": {
+		"path": "res://assets/dog/source/actions/sleep_idle/1786250482745-soeza6hm94b/1786250482745-soeza6hm94b_frames.tres",
+		"loop": true
+	},
+	"happy": {
+		"path": "res://assets/dog/source/actions/happy/1786251153687-durjeh5vxcq/1786251153687-durjeh5vxcq_frames.tres",
+		"loop": true
+	}
+}
+
+enum State { IDLE, WALK, SIT_ENTER, SIT, SIT_EXIT, SLEEP_ENTER, SLEEP, SLEEP_EXIT, HAPPY, APPROACH }
 
 var _sprite: AnimatedSprite2D
 var _frames: SpriteFrames
@@ -96,6 +119,7 @@ func _ready() -> void:
 	_sprite.centered = true
 	add_child(_sprite)
 	_sprite.frame_changed.connect(_update_passthrough)
+	_sprite.animation_finished.connect(_on_animation_finished)
 	_precompute_passthrough()
 	_window_position = Vector2(_clamp_position(_initial_position))
 	position = Vector2i(_window_position.round())
@@ -121,15 +145,27 @@ func _process(delta: float) -> void:
 	_state_time += delta
 	_playful_until = maxf(_playful_until - delta, 0.0)
 	match _state:
-		State.IDLE, State.REST:
-			if _state == State.IDLE and _has_owner_anchor and _window_position.distance_to(_owner_anchor) > FOLLOW_DISTANCE:
+		State.IDLE:
+			if _has_owner_anchor and _window_position.distance_to(_owner_anchor) > FOLLOW_DISTANCE:
 				_enter_state(State.WALK)
 			elif _state_time >= _state_duration:
-				_enter_state(State.WALK if _state == State.IDLE else State.IDLE)
+				_choose_idle_followup()
 		State.WALK:
 			_move_window(delta, _current_walk_speed())
 			if _state_time >= _state_duration:
 				_enter_state(State.IDLE)
+		State.SIT:
+			if (_has_owner_anchor and _window_position.distance_to(_owner_anchor) > FOLLOW_DISTANCE) or _state_time >= _state_duration:
+				_enter_state(State.SIT_EXIT)
+		State.SLEEP:
+			if _state_time >= _state_duration:
+				_enter_state(State.SLEEP_EXIT)
+		State.HAPPY:
+			if _state_time >= _state_duration:
+				_enter_state(State.IDLE)
+		State.SIT_ENTER, State.SIT_EXIT, State.SLEEP_ENTER, State.SLEEP_EXIT:
+			if _state_time >= _state_duration:
+				_finish_transition_fallback()
 		State.APPROACH:
 			_update_approach(delta)
 
@@ -180,7 +216,7 @@ func adopt(new_name: String, screen_position: Vector2i, screen_index: int) -> bo
 	_save_state()
 	show()
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
-	_enter_state(State.IDLE)
+	_enter_state(State.HAPPY)
 	_update_passthrough()
 	availability_changed.emit(_adopted, _active)
 	name_changed.emit(_dog_name)
@@ -208,7 +244,7 @@ func come_out(screen_position: Vector2i, screen_index: int) -> void:
 	_save_state()
 	show()
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
-	_enter_state(State.IDLE)
+	_enter_state(State.HAPPY)
 	_update_passthrough()
 	availability_changed.emit(_adopted, _active)
 
@@ -260,13 +296,11 @@ func perform_care(action: String) -> void:
 	match action:
 		"feed":
 			if is_available():
-				_enter_state(State.IDLE)
-				_state_duration = 5.5
+				_enter_state(State.HAPPY)
 			care_message.emit("%s吃得好香，尾巴都摇起来啦 (^_^)" % dog_name, "🍖")
 		"drink":
 			if is_available():
-				_enter_state(State.IDLE)
-				_state_duration = 4.5
+				_enter_state(State.HAPPY)
 			care_message.emit("咕嘟咕嘟，喝完水精神多啦 (ᵔᴥᵔ)", "💧")
 		"play":
 			if is_available():
@@ -276,8 +310,7 @@ func perform_care(action: String) -> void:
 			care_message.emit("球球飞出去啦，%s快追！ (^o^)" % dog_name, "🎾")
 		"rest":
 			if is_available():
-				_enter_state(State.REST)
-				_state_duration = 8.0
+				_enter_state(State.SLEEP_ENTER)
 			care_message.emit("%s在软软的窝里团成一团啦 (－ω－) zzZ" % dog_name, "💤")
 
 
@@ -292,12 +325,69 @@ func _enter_state(next_state: int) -> void:
 			_state_duration = _rng.randf_range(3.0, 6.0)
 			_choose_walk_direction()
 			_update_walk_animation()
-		State.REST:
-			_state_duration = 8.0
-			_play("idle")
+		State.SIT_ENTER:
+			_state_duration = 1.5
+			if not _play("sit_enter"):
+				_enter_state(State.SIT)
+		State.SIT:
+			_state_duration = _rng.randf_range(6.0, 11.0)
+			_play("sit_idle")
+		State.SIT_EXIT:
+			_state_duration = 1.5
+			if not _play("sit_enter", true):
+				_enter_state(State.IDLE)
+		State.SLEEP_ENTER:
+			_state_duration = 1.5
+			if not _play("sleep_enter"):
+				_enter_state(State.SLEEP)
+		State.SLEEP:
+			_state_duration = _rng.randf_range(12.0, 24.0)
+			_play("sleep_idle")
+		State.SLEEP_EXIT:
+			_state_duration = 1.5
+			if not _play("sleep_enter", true):
+				_enter_state(State.IDLE)
+		State.HAPPY:
+			_state_duration = 2.6
+			_play("happy")
 		State.APPROACH:
 			_state_duration = 10.0
 			_update_direction_toward(_approach_target)
+
+
+func _choose_idle_followup() -> void:
+	if _playful_until > 0.0:
+		_enter_state(State.WALK)
+		return
+	var choice := _rng.randf()
+	if choice < 0.24:
+		_enter_state(State.SIT_ENTER)
+	elif choice < 0.34:
+		_enter_state(State.SLEEP_ENTER)
+	else:
+		_enter_state(State.WALK)
+
+
+func _finish_transition_fallback() -> void:
+	match _state:
+		State.SIT_ENTER:
+			_enter_state(State.SIT)
+		State.SIT_EXIT, State.SLEEP_EXIT:
+			_enter_state(State.IDLE)
+		State.SLEEP_ENTER:
+			_enter_state(State.SLEEP)
+
+
+func _on_animation_finished() -> void:
+	match _state:
+		State.SIT_ENTER:
+			_enter_state(State.SIT)
+		State.SIT_EXIT:
+			_enter_state(State.IDLE)
+		State.SLEEP_ENTER:
+			_enter_state(State.SLEEP)
+		State.SLEEP_EXIT:
+			_enter_state(State.IDLE)
 
 
 func _choose_walk_direction() -> void:
@@ -452,14 +542,22 @@ func _build_frames() -> SpriteFrames:
 		var source_names := source.get_animation_names()
 		if not source_names.is_empty():
 			_copy_animation(target, target_name, source, source_names[0])
+	for target_name in ACTION_FRAME_SPECS:
+		var spec: Dictionary = ACTION_FRAME_SPECS[target_name]
+		var source := load(String(spec["path"])) as SpriteFrames
+		if not source:
+			continue
+		var source_names := source.get_animation_names()
+		if not source_names.is_empty():
+			_copy_animation(target, target_name, source, source_names[0], bool(spec["loop"]))
 	return target
 
 
-func _copy_animation(target: SpriteFrames, target_name: String, source: SpriteFrames, source_name: String) -> void:
+func _copy_animation(target: SpriteFrames, target_name: String, source: SpriteFrames, source_name: String, loop: bool = true) -> void:
 	if target.has_animation(target_name):
 		target.remove_animation(target_name)
 	target.add_animation(target_name)
-	target.set_animation_loop(target_name, true)
+	target.set_animation_loop(target_name, loop)
 	target.set_animation_speed(target_name, source.get_animation_speed(source_name))
 	for frame_index in source.get_frame_count(source_name):
 		var texture := source.get_frame_texture(source_name, frame_index)
@@ -468,9 +566,14 @@ func _copy_animation(target: SpriteFrames, target_name: String, source: SpriteFr
 			target.add_frame(target_name, texture, duration)
 
 
-func _play(animation_name: String) -> void:
-	if _frames and _frames.has_animation(animation_name):
+func _play(animation_name: String, backwards: bool = false) -> bool:
+	if not _frames or not _frames.has_animation(animation_name):
+		return false
+	if backwards:
+		_sprite.play_backwards(animation_name)
+	else:
 		_sprite.play(animation_name)
+	return true
 
 
 func _precompute_passthrough() -> void:
