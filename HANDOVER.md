@@ -306,3 +306,12 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 按用户要求将 `scripts/badminton_game_panel.gd` 精确恢复为 `DesktopPet_backup_20260808-232125` 中的版本，即两次花边实验之前的 `960x720` 球场与 `12px` 奶油粉双层边框。
 - 删除不再使用的 `window_outer_floral_frame.png`；用户版羽毛球 BGM、九个音效、玩法逻辑、计分板定位和设置窗口按钮修复均保留。
 - Godot 4.7.1 导入检查退出码为 0；实际窗口尺寸恢复为 `984x744`，视觉 QA 见 `logs/badminton_rollback_live.png`。
+
+## 2026-08-09 骑龙飞行隐藏彩蛋
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260809-020510`；源项目与备份均为 `3124` 个文件、`204900503` 字节。
+- `assets/activities/dragon_ride/`：归档用户提供的“骑着巨龙资源包”，接入 `16` 帧透明像素动画；运行时以 `8 FPS` 循环，单轮约 `1.6` 秒。
+- `scripts/companion_settings_panel.gd`：彩蛋隐藏在陪伴设置原有“重新识别”按钮中；按钮单击功能、外观和动画不变，`3.2` 秒内连续点击 `5` 次才发出触发信号，关闭设置窗口会清空未完成的连击。
+- `scripts/pet.gd`：触发后先显示骑龙剧情台词，再进入约 `18` 秒的桌面飞行；窗口以约 `165px/s` 横向巡航、轻微上下起伏并在屏幕右侧飞出后从左侧重新进入。飞行中点击角色可提前降落，结束后恢复原位置、待机和点击穿透。
+- 剧情气泡带短暂优先级锁，主动陪伴回复不会覆盖起飞和降落台词；调试直达参数为 `--show-dragon-ride`。
+- Godot 4.7.1 导入与脚本解析通过；真实设置按钮五连点会收起设置并触发起飞，视觉 QA 见 `logs/dragon_secret_dialogue.png` 和 `logs/dragon_secret_flight.png`。

@@ -45,15 +45,23 @@ const MENU_EXIT := 99
 const BADMINTON_ANIMATION := "badminton"
 const MUSIC_ANIMATION := "music"
 const HANDHELD_ANIMATION := "handheld"
+const DRAGON_RIDE_ANIMATION := "dragon_ride"
+const DRAGON_RIDE_DURATION := 18.0
+const DRAGON_LAUNCH_DELAY := 1.65
+const DRAGON_FLIGHT_SPEED := 165.0
+const DRAGON_FLIGHT_BOB_HEIGHT := 9.0
+const DRAGON_FLIGHT_BOB_SPEED := 2.6
 const ACTIVITY_DURATIONS := {
 	BADMINTON_ANIMATION: 13.0,
 	MUSIC_ANIMATION: 22.0,
-	HANDHELD_ANIMATION: 24.0
+	HANDHELD_ANIMATION: 24.0,
+	DRAGON_RIDE_ANIMATION: DRAGON_RIDE_DURATION
 }
 const ACTIVITY_SPEEDS := {
 	BADMINTON_ANIMATION: 7.0,
 	MUSIC_ANIMATION: 6.0,
-	HANDHELD_ANIMATION: 6.0
+	HANDHELD_ANIMATION: 6.0,
+	DRAGON_RIDE_ANIMATION: 8.0
 }
 const UI_TEXTURE_DIR := "res://assets/ui_source/generated/1-animations/textures"
 const CARE_UI_DIR := "res://assets/care/runtime/ui"
@@ -85,6 +93,13 @@ var _sleep_turn_hold_time := 0.0
 var _next_sleep_turn_time := 0.0
 var _wake_after_sleep_turn := false
 var _active_activity := ""
+var _dragon_launch_time_left := 0.0
+var _dragon_origin_position := Vector2.ZERO
+var _dragon_flight_position := Vector2.ZERO
+var _dragon_flight_direction := Vector2.RIGHT
+var _dragon_flight_phase := 0.0
+var _dragon_flight_screen := 0
+var _suppress_next_left_release := false
 
 # ---- 拖动 ----
 var _dragging := false
@@ -98,6 +113,7 @@ var _bubble
 var _bubble_layer: CanvasLayer
 var _bubble_time_left := 0.0
 var _speech_time_left := 0.0
+var _scripted_dialogue_time_left := 0.0
 var _bubble_lines := [
 	{"text": "见到你真好 (^_^)", "emoji": "✨"},
 	{"text": "今天也要加油 (>_<)", "emoji": "💪"},
@@ -180,10 +196,13 @@ func _ready() -> void:
 		call_deferred("_open_companion_settings")
 	if startup_args.has("--show-badminton-game") or user_args.has("--show-badminton-game"):
 		call_deferred("_open_badminton_game")
+	if startup_args.has("--show-dragon-ride") or user_args.has("--show-dragon-ride"):
+		call_deferred("_begin_dragon_ride_easter_egg")
 
 
 func _process(delta: float) -> void:
 	_comfort_cooldown = maxf(_comfort_cooldown - delta, 0.0)
+	_scripted_dialogue_time_left = maxf(_scripted_dialogue_time_left - delta, 0.0)
 	if state != State.SLEEP:
 		if state != State.ACTIVITY:
 			_speech_time_left -= delta
@@ -195,6 +214,11 @@ func _process(delta: float) -> void:
 		elif state != State.ACTIVITY and _speech_time_left <= 0.0:
 			_say_random()
 	_update_proactive_context()
+	if _dragon_launch_time_left > 0.0:
+		_dragon_launch_time_left -= delta
+		if _dragon_launch_time_left <= 0.0:
+			_start_dragon_ride()
+		return
 
 	if _dragging:
 		_update_drag_sway(delta)
@@ -212,6 +236,11 @@ func _process(delta: float) -> void:
 				_wake_after_sleep_turn = true
 		return
 	if state == State.ACTIVITY:
+		if _active_activity == DRAGON_RIDE_ANIMATION:
+			_update_dragon_flight(delta)
+			if _state_duration > 0.0 and _state_time >= _state_duration:
+				_finish_dragon_ride(false)
+			return
 		if _state_duration > 0.0 and _state_time >= _state_duration:
 			_finish_activity()
 		return
@@ -290,6 +319,7 @@ func _create_care_features() -> void:
 	_companion_settings_panel = CompanionSettingsPanel.new()
 	_companion_settings_panel.name = "CompanionSettingsPanel"
 	_companion_settings_panel.configure(_cjk_font, _proactive_companion, _foreground_app_monitor)
+	_companion_settings_panel.dragon_easter_egg_requested.connect(_on_dragon_easter_egg_requested)
 	add_child(_companion_settings_panel)
 
 	_badminton_game = BadmintonGamePanel.new()
@@ -344,6 +374,8 @@ func _on_ai_assistant_replied(text: String) -> void:
 
 
 func _on_proactive_message(text: String, emoji: String) -> void:
+	if _scripted_dialogue_time_left > 0.0:
+		return
 	_show_bubble(text, 8.0, emoji)
 
 
@@ -560,6 +592,106 @@ func _open_companion_settings() -> void:
 	panel_x = clampi(panel_x, usable.position.x, usable.end.x - panel_size.x)
 	var panel_y := clampi(pet_position.y - 80, usable.position.y, usable.end.y - panel_size.y)
 	_companion_settings_panel.open_at(Vector2i(panel_x, panel_y))
+
+
+func _on_dragon_easter_egg_requested() -> void:
+	if _companion_settings_panel and _companion_settings_panel.visible:
+		_companion_settings_panel.hide_panel()
+	if _proactive_companion:
+		_proactive_companion.mark_user_activity()
+		_proactive_companion.note_interaction("用户发现了藏在设置里的骑龙彩蛋")
+	_begin_dragon_ride_easter_egg()
+
+
+func _begin_dragon_ride_easter_egg() -> void:
+	if _dragon_launch_time_left > 0.0 or _active_activity == DRAGON_RIDE_ANIMATION:
+		return
+	if not sprite.sprite_frames or not sprite.sprite_frames.has_animation(DRAGON_RIDE_ANIMATION):
+		if state == State.SLEEP or state == State.WAKE:
+			_enter_state(State.IDLE)
+		_show_bubble("唔，龙好像还没睡醒……", 3.2, "?")
+		return
+	if _badminton_game and _badminton_game.visible:
+		return
+	if _care_panel and _care_panel.visible:
+		_care_panel.hide_panel()
+	if _ai_chat_panel and _ai_chat_panel.visible:
+		_ai_chat_panel.hide_panel()
+	if _context_menu and _context_menu.visible:
+		_context_menu.hide()
+	_active_activity = ""
+	_enter_state(State.IDLE)
+	_state_duration = DRAGON_LAUNCH_DELAY + 1.0
+	_dragon_launch_time_left = DRAGON_LAUNCH_DELAY
+	_scripted_dialogue_time_left = DRAGON_LAUNCH_DELAY + 0.5
+	_show_bubble("嘘……你找到秘密通道啦。抓稳咯！", 2.4, "🐉")
+
+
+func _start_dragon_ride() -> void:
+	_dragon_launch_time_left = 0.0
+	_hide_bubble()
+	_dragon_origin_position = Vector2(DisplayServer.window_get_position())
+	_dragon_flight_position = _dragon_origin_position
+	_dragon_flight_screen = DisplayServer.window_get_current_screen()
+	if _dragon_flight_screen < 0:
+		_dragon_flight_screen = 0
+	var usable := DisplayServer.screen_get_usable_rect(_dragon_flight_screen)
+	var window_center_y := _dragon_flight_position.y + DisplayServer.window_get_size().y * 0.5
+	var vertical_direction := -0.16 if window_center_y > usable.get_center().y else 0.16
+	_dragon_flight_direction = Vector2(1.0, vertical_direction).normalized()
+	_dragon_flight_phase = 0.0
+	sprite.rotation = 0.0
+	sprite.scale = Vector2.ONE * SPRITE_SCALE
+	sprite.flip_h = false
+	_active_activity = DRAGON_RIDE_ANIMATION
+	_enter_state(State.ACTIVITY)
+
+
+func _update_dragon_flight(delta: float) -> void:
+	var usable := DisplayServer.screen_get_usable_rect(_dragon_flight_screen)
+	var window_size := DisplayServer.window_get_size()
+	var min_y := float(usable.position.y)
+	var max_y := float(usable.end.y - window_size.y)
+	_dragon_flight_position += _dragon_flight_direction * DRAGON_FLIGHT_SPEED * delta
+
+	var wrap_left := float(usable.position.x - window_size.x + 20)
+	var wrap_right := float(usable.end.x + 20)
+	if _dragon_flight_position.x > wrap_right:
+		_dragon_flight_position.x = wrap_left
+	if _dragon_flight_position.y <= min_y:
+		_dragon_flight_position.y = min_y
+		_dragon_flight_direction.y = absf(_dragon_flight_direction.y)
+	elif _dragon_flight_position.y >= max_y:
+		_dragon_flight_position.y = max_y
+		_dragon_flight_direction.y = -absf(_dragon_flight_direction.y)
+	_dragon_flight_direction = _dragon_flight_direction.normalized()
+
+	_dragon_flight_phase += delta * DRAGON_FLIGHT_BOB_SPEED
+	var display_position := _dragon_flight_position + Vector2(0.0, sin(_dragon_flight_phase) * DRAGON_FLIGHT_BOB_HEIGHT)
+	display_position.y = clampf(display_position.y, min_y, max_y)
+	_window_position = display_position
+	DisplayServer.window_set_position(Vector2i(display_position.round()))
+
+
+func _finish_dragon_ride(interrupted: bool) -> void:
+	_dragon_launch_time_left = 0.0
+	_active_activity = ""
+	sprite.rotation = 0.0
+	sprite.scale = Vector2.ONE * SPRITE_SCALE
+	sprite.flip_h = false
+	var usable := DisplayServer.screen_get_usable_rect(_dragon_flight_screen)
+	var window_size := DisplayServer.window_get_size()
+	var restored := Vector2i(
+		clampi(roundi(_dragon_origin_position.x), usable.position.x, usable.end.x - window_size.x),
+		clampi(roundi(_dragon_origin_position.y), usable.position.y, usable.end.y - window_size.y)
+	)
+	_window_position = Vector2(restored)
+	DisplayServer.window_set_position(restored)
+	_enter_state(State.IDLE)
+	_state_duration = 5.0
+	var message := "好啦，提前降落。下次再出发吧！" if interrupted else "平安着陆！刚才是不是超帅的？"
+	_scripted_dialogue_time_left = 4.0
+	_show_bubble(message, 3.8, "🐉")
 
 
 func _on_proactive_enabled_changed(enabled: bool) -> void:
@@ -1101,6 +1233,9 @@ func _enter_state(s: int) -> void:
 
 
 func _finish_activity() -> void:
+	if _active_activity == DRAGON_RIDE_ANIMATION:
+		_finish_dragon_ride(false)
+		return
 	_active_activity = ""
 	_enter_state(State.IDLE)
 	_state_duration = 4.0
@@ -1289,6 +1424,16 @@ func _input(event: InputEvent) -> void:
 		if _badminton_game and _badminton_game.visible:
 			return
 		get_tree().quit()
+		return
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and _suppress_next_left_release:
+		_suppress_next_left_release = false
+		return
+	if state == State.ACTIVITY and _active_activity == DRAGON_RIDE_ANIMATION and event is InputEventMouse:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+			_suppress_next_left_release = true
+			_finish_dragon_ride(true)
+		return
+	if _dragon_launch_time_left > 0.0 and event is InputEventMouse:
 		return
 
 	# 菜单打开时把鼠标事件留给 PopupMenu 自己处理。

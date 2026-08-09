@@ -1,10 +1,14 @@
 extends Window
 class_name PetCompanionSettingsPanel
 
+signal dragon_easter_egg_requested
+
 const UI_DIR := "res://assets/companion/runtime/ui"
 const BASE_SIZE := Vector2(1478, 1037)
 const UI_SCALE := 0.4
 const PANEL_SIZE := Vector2i(591, 415)
+const DRAGON_SECRET_CLICK_COUNT := 5
+const DRAGON_SECRET_CLICK_WINDOW_MS := 3200
 
 var _font: Font
 var _companion: PetProactiveCompanion
@@ -21,6 +25,8 @@ var _memory_status: Label
 var _panel_tween: Tween
 var _button_tweens: Dictionary = {}
 var _toggle_labels: Dictionary = {}
+var _refresh_secret_clicks := 0
+var _refresh_secret_last_click_ms := 0
 
 
 func _init() -> void:
@@ -64,6 +70,8 @@ func open_at(screen_position: Vector2i) -> void:
 
 
 func hide_panel() -> void:
+	_refresh_secret_clicks = 0
+	_refresh_secret_last_click_ms = 0
 	hide()
 
 
@@ -251,6 +259,16 @@ func _on_clear_memory_pressed() -> void:
 
 
 func _on_refresh_app_pressed() -> void:
+	var now_ms := Time.get_ticks_msec()
+	if now_ms - _refresh_secret_last_click_ms > DRAGON_SECRET_CLICK_WINDOW_MS:
+		_refresh_secret_clicks = 0
+	_refresh_secret_last_click_ms = now_ms
+	_refresh_secret_clicks += 1
+	if _refresh_secret_clicks >= DRAGON_SECRET_CLICK_COUNT:
+		_refresh_secret_clicks = 0
+		_refresh_secret_last_click_ms = 0
+		dragon_easter_egg_requested.emit()
+
 	if _monitor and _monitor.is_enabled():
 		_app_status.text = "正在重新识别……"
 		_monitor.refresh_now()
