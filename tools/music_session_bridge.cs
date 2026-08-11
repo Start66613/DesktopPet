@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
+using Windows.Media;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
 
@@ -20,21 +21,21 @@ internal static class MusicSessionBridge
 
     public static int Main(string[] args)
     {
-        Console.OutputEncoding = new UTF8Encoding(false);
+        Console.OutputEncoding = Encoding.ASCII;
         try
         {
             var result = RunAsync(args ?? new string[0]).GetAwaiter().GetResult();
-            Console.WriteLine(Json.Serialize(result));
+            WriteJson(result);
             return result.ContainsKey("success") && Convert.ToBoolean(result["success"]) ? 0 : 2;
         }
         catch (Exception error)
         {
-            Console.WriteLine(Json.Serialize(new Dictionary<string, object>
+            WriteJson(new Dictionary<string, object>
             {
                 { "success", false },
                 { "found", false },
                 { "error", error.GetType().Name + ": " + error.Message }
-            }));
+            });
             return 1;
         }
     }
@@ -84,6 +85,17 @@ internal static class MusicSessionBridge
                 if (args.Length < 2 || !long.TryParse(args[1], out milliseconds))
                     throw new ArgumentException("seek requires a position in milliseconds");
                 commandResult = await selection.Session.TryChangePlaybackPositionAsync(Math.Max(0, milliseconds) * TimeSpan.TicksPerMillisecond);
+                break;
+            case "shuffle":
+                bool shuffleActive;
+                if (args.Length < 2 || !bool.TryParse(args[1], out shuffleActive))
+                    throw new ArgumentException("shuffle requires true or false");
+                commandResult = await selection.Session.TryChangeShuffleActiveAsync(shuffleActive);
+                break;
+            case "repeat":
+                if (args.Length < 2)
+                    throw new ArgumentException("repeat requires none, track, or list");
+                commandResult = await selection.Session.TryChangeAutoRepeatModeAsync(ParseRepeatMode(args[1]));
                 break;
             default:
                 throw new ArgumentException("unknown command: " + action);
@@ -153,6 +165,10 @@ internal static class MusicSessionBridge
         var album = properties.AlbumTitle ?? string.Empty;
         var durationMs = Math.Max(0L, (long)duration.TotalMilliseconds);
         var positionMs = Math.Max(0L, (long)(timeline.Position - timeline.StartTime).TotalMilliseconds);
+        var repeatMode = playback != null && playback.AutoRepeatMode.HasValue
+            ? RepeatModeName(playback.AutoRepeatMode.Value)
+            : "unknown";
+        var shuffleActive = playback != null && playback.IsShuffleActive.HasValue && playback.IsShuffleActive.Value;
 
         return new Dictionary<string, object>
         {
@@ -173,6 +189,10 @@ internal static class MusicSessionBridge
             { "can_next", controls != null && controls.IsNextEnabled },
             { "can_previous", controls != null && controls.IsPreviousEnabled },
             { "can_seek", controls != null && controls.IsPlaybackPositionEnabled },
+            { "can_repeat", controls != null && controls.IsRepeatEnabled },
+            { "can_shuffle", controls != null && controls.IsShuffleEnabled },
+            { "repeat_mode", repeatMode },
+            { "shuffle_active", shuffleActive },
             { "cover_written", coverWritten },
             { "cover_path", coverWritten ? coverPath : string.Empty },
             { "session_count", selection.SessionCount },
@@ -236,5 +256,44 @@ internal static class MusicSessionBridge
             case "netease": return "网易云音乐";
             default: return "本地播放器";
         }
+    }
+
+    private static MediaPlaybackAutoRepeatMode ParseRepeatMode(string value)
+    {
+        switch ((value ?? string.Empty).Trim().ToLowerInvariant())
+        {
+            case "none": return MediaPlaybackAutoRepeatMode.None;
+            case "track": return MediaPlaybackAutoRepeatMode.Track;
+            case "list": return MediaPlaybackAutoRepeatMode.List;
+            default: throw new ArgumentException("unknown repeat mode: " + value);
+        }
+    }
+
+    private static string RepeatModeName(MediaPlaybackAutoRepeatMode value)
+    {
+        switch (value)
+        {
+            case MediaPlaybackAutoRepeatMode.Track: return "track";
+            case MediaPlaybackAutoRepeatMode.List: return "list";
+            default: return "none";
+        }
+    }
+
+    private static void WriteJson(Dictionary<string, object> value)
+    {
+        Console.WriteLine(EscapeNonAscii(Json.Serialize(value)));
+    }
+
+    private static string EscapeNonAscii(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            if (character <= 0x7f)
+                builder.Append(character);
+            else
+                builder.Append("\\u").Append(((int)character).ToString("x4"));
+        }
+        return builder.ToString();
     }
 }

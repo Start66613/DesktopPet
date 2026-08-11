@@ -108,6 +108,22 @@ func seek_to(position_ms: int) -> void:
 	_queue_command(PackedStringArray(["seek", str(maxi(position_ms, 0))]))
 
 
+func set_play_mode(mode: String) -> void:
+	match mode:
+		"sequential":
+			_queue_command(PackedStringArray(["shuffle", "false"]))
+			_queue_command(PackedStringArray(["repeat", "none"]))
+		"list":
+			_queue_command(PackedStringArray(["shuffle", "false"]))
+			_queue_command(PackedStringArray(["repeat", "list"]))
+		"single":
+			_queue_command(PackedStringArray(["shuffle", "false"]))
+			_queue_command(PackedStringArray(["repeat", "track"]))
+		"shuffle":
+			_queue_command(PackedStringArray(["repeat", "none"]))
+			_queue_command(PackedStringArray(["shuffle", "true"]))
+
+
 func get_cover_bytes() -> PackedByteArray:
 	if not bool(_session.get("cover_written", false)) or not FileAccess.file_exists(COVER_PATH):
 		return PackedByteArray()

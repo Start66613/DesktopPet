@@ -10,9 +10,13 @@ const PREVIOUS_REGION := Rect2(423, 747, 135, 137)
 const PLAY_REGION := Rect2(592, 738, 195, 151)
 const PAUSE_REGION := Rect2(817, 746, 143, 139)
 const NEXT_REGION := Rect2(999, 748, 139, 137)
+const SHUFFLE_REGION := Rect2(1170, 774, 88, 88)
+const REPEAT_REGION := Rect2(1292, 773, 91, 89)
 const PREVIOUS_RECT := Rect2(555, 746, 135, 137)
 const PLAY_PAUSE_RECT := Rect2(742, 738, 195, 151)
 const NEXT_RECT := Rect2(988, 746, 139, 137)
+const MODE_RECT := Rect2(1230, 773, 91, 89)
+const PLAY_MODES := ["sequential", "list", "single", "shuffle"]
 
 var _font: Font
 var _monitor: PetMusicSessionMonitor
@@ -35,8 +39,12 @@ var _progress: PetMusicProgressControl
 var _previous_button: TextureButton
 var _play_pause_button: TextureButton
 var _next_button: TextureButton
+var _mode_button: TextureButton
+var _mode_badge: Label
 var _play_texture: AtlasTexture
 var _pause_texture: AtlasTexture
+var _shuffle_texture: AtlasTexture
+var _repeat_texture: AtlasTexture
 var _panel_tween: Tween
 var _button_tweens: Dictionary = {}
 var _session: Dictionary = {"found": false}
@@ -45,6 +53,9 @@ var _lyrics_track_id := ""
 var _current_lyric_index := -1
 var _seek_preview_ratio := -1.0
 var _seek_preview_until_ms := 0
+var _display_mode := "sequential"
+var _requested_mode := ""
+var _mode_request_until_ms := 0
 
 
 func _init() -> void:
@@ -148,6 +159,23 @@ func _build_ui() -> void:
 	_next_button = _make_atlas_button(NEXT_REGION, NEXT_RECT, "下一首")
 	_next_button.pressed.connect(_on_next_pressed)
 	_root.add_child(_next_button)
+	_shuffle_texture = _make_atlas_texture(SHUFFLE_REGION)
+	_repeat_texture = _make_atlas_texture(REPEAT_REGION)
+	_mode_button = _make_atlas_button(REPEAT_REGION, MODE_RECT, "播放顺序")
+	_mode_button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+	_mode_button.pressed.connect(_on_mode_pressed)
+	_root.add_child(_mode_button)
+	_mode_badge = Label.new()
+	_mode_badge.position = Vector2(55, 2)
+	_mode_badge.size = Vector2(30, 30)
+	_mode_badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_mode_badge.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_mode_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_mode_badge.add_theme_font_size_override("font_size", 23)
+	_mode_badge.add_theme_color_override("font_color", Color("6f9478"))
+	if _font:
+		_mode_badge.add_theme_font_override("font", _font)
+	_mode_button.add_child(_mode_badge)
 
 	_text_layer = Control.new()
 	_text_layer.size = Vector2(PANEL_SIZE)
@@ -175,7 +203,7 @@ func _build_ui() -> void:
 	_album_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_text_layer.add_child(_album_label)
 
-	_source_label = _make_label("等待播放器", Vector2(55, 68), Vector2(180, 28), 17, Color("a65f70"))
+	_source_label = _make_label("等待播放器", Vector2(91, 68), Vector2(180, 28), 17, Color("a65f70"))
 	_text_layer.add_child(_source_label)
 	_status_label = _make_label("正在寻找音乐…", Vector2(595, 72), Vector2(165, 26), 15, Color("a77a82"))
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -262,6 +290,8 @@ func _on_session_updated(info: Dictionary) -> void:
 		_progress.interactive = false
 		_progress.value = 0.0
 		_seek_preview_ratio = -1.0
+		_requested_mode = ""
+		_update_mode_state()
 		_set_controls_enabled(false)
 		_show_lyric_message("歌词会在播放后出现")
 		_update_progress()
@@ -276,6 +306,7 @@ func _on_session_updated(info: Dictionary) -> void:
 	_progress.interactive = int(_session.get("duration_ms", 0)) > 0
 	_progress.tooltip_text = "拖动播放进度" if bool(_session.get("can_seek", false)) else "可尝试拖动，部分播放器可能不响应"
 	_update_play_pause_state()
+	_update_mode_state()
 	_set_controls_enabled(true)
 	_update_progress()
 
@@ -384,6 +415,7 @@ func _set_controls_enabled(enabled: bool) -> void:
 	var can_toggle := bool(_session.get("can_pause", true)) if playing else bool(_session.get("can_play", true))
 	_play_pause_button.disabled = not enabled or not can_toggle
 	_next_button.disabled = not enabled or not bool(_session.get("can_next", false))
+	_mode_button.disabled = not enabled
 
 
 func _on_previous_pressed() -> void:
@@ -401,6 +433,21 @@ func _on_next_pressed() -> void:
 		_monitor.skip_next()
 
 
+func _on_mode_pressed() -> void:
+	if not _monitor:
+		return
+	if not bool(_session.get("can_repeat", false)) and not bool(_session.get("can_shuffle", false)):
+		_status_label.text = "请在%s中切换" % String(_session.get("source_label", "播放器"))
+		return
+	var current_index := PLAY_MODES.find(_display_mode)
+	var next_mode: String = PLAY_MODES[(current_index + 1) % PLAY_MODES.size()] if current_index >= 0 else "list"
+	_requested_mode = next_mode
+	_mode_request_until_ms = Time.get_ticks_msec() + 3200
+	_set_mode_visual(next_mode)
+	_status_label.text = _mode_display_name(next_mode)
+	_monitor.set_play_mode(next_mode)
+
+
 func _on_seek_requested(ratio: float) -> void:
 	var duration_ms := int(_session.get("duration_ms", 0))
 	if _monitor and duration_ms > 0:
@@ -415,6 +462,55 @@ func _update_play_pause_state() -> void:
 	var playing := String(_session.get("playback_status", "")) == "playing"
 	_play_pause_button.texture_normal = _pause_texture if playing else _play_texture
 	_play_pause_button.tooltip_text = "暂停" if playing else "播放"
+
+
+func _update_mode_state() -> void:
+	if not _mode_button:
+		return
+	if not _requested_mode.is_empty() and Time.get_ticks_msec() < _mode_request_until_ms:
+		_set_mode_visual(_requested_mode)
+		return
+	_requested_mode = ""
+	var mode := "sequential"
+	if bool(_session.get("shuffle_active", false)):
+		mode = "shuffle"
+	else:
+		match String(_session.get("repeat_mode", "none")):
+			"list":
+				mode = "list"
+			"track":
+				mode = "single"
+	_set_mode_visual(mode)
+
+
+func _set_mode_visual(mode: String) -> void:
+	_display_mode = mode
+	_mode_button.texture_normal = _shuffle_texture if mode == "shuffle" else _repeat_texture
+	match mode:
+		"sequential":
+			_mode_badge.text = ">"
+		"list":
+			_mode_badge.text = "A"
+		"single":
+			_mode_badge.text = "1"
+		_:
+			_mode_badge.text = ""
+	var capability_note := ""
+	if not bool(_session.get("can_repeat", false)) and not bool(_session.get("can_shuffle", false)):
+		capability_note = "（需在播放器内切换）"
+	_mode_button.tooltip_text = "播放顺序：" + _mode_display_name(mode) + capability_note
+
+
+func _mode_display_name(mode: String) -> String:
+	match mode:
+		"list":
+			return "列表循环"
+		"single":
+			return "单曲循环"
+		"shuffle":
+			return "随机播放"
+		_:
+			return "顺序播放"
 
 
 func _on_drag_handle_gui_input(event: InputEvent) -> void:

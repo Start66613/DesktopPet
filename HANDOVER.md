@@ -388,3 +388,11 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 删除进度条下方的白色 `ColorRect` 遮罩。`music_progress_control.gd` 在拖动期间保持用户位置，不再被逐帧媒体状态覆盖；松手后立即显示预览位置并向本地播放器发送跳转请求。QQ音乐当前通过 GSMTC 报告 `can_seek=false`，且实测会接受命令但可能不改变真实位置，因此界面允许尝试拖动，最终仍以播放器返回的真实进度为准。
 - 封面加载先检查文件头再选择 PNG、JPEG 或 WebP 解码，QQ音乐的 JPEG 封面不再触发无意义的 PNG 损坏日志。
 - Godot 4.7.1 资源导入、两个修改脚本的 `--check-only`、完整音乐窗口 headless 运行均通过；歌词 QA 继续返回 `MUSIC_FEATURE_QA_OK source=QQ音乐歌词 lines=63`。
+
+## 2026-08-11 音乐元数据编码与播放顺序
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260811-233834`。
+- 音乐窗口乱码并非 `ZCOOLKuaiLe-Regular.ttf` 字体损坏，而是 Windows 上 Godot `OS.execute` 按系统代码页接收了桥接器强制输出的 UTF-8。`music_session_bridge.cs` 现将所有非 ASCII 字符写成 JSON `\uXXXX` 转义，协议全程只包含 ASCII，Godot JSON 解析后可稳定还原中文、日文及其他 Unicode 元数据。
+- 桥接器与监控层新增 GSMTC 的随机播放、重复模式能力与命令。音乐窗口恢复一个播放顺序按钮，统一表达顺序播放、列表循环、单曲循环和随机播放，不再显示多个重复按钮；当前 QQ音乐报告 `can_repeat=false`、`can_shuffle=false`，因此按钮保留并提示在 QQ音乐内切换，不伪装成已生效。
+- 左上角播放器来源从 `x=55` 移到 `x=91`，避开底图自带音符装饰；歌名、歌手、专辑继续使用固定宽度和省略号约束，修复编码后不会再以超长乱码覆盖底图。
+- 新增 `tools/music_bridge_qa.gd`，实测 Godot 收到 `QQ音乐 / 同桌的你 / 胡夏`，并验证四个播放模式字段存在；歌词 QA 继续返回 63 行，音乐窗口完整 headless 运行无错误。
