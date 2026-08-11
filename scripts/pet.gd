@@ -43,6 +43,7 @@ const MENU_TOGGLE_PROACTIVE := 6
 const MENU_COMPANION_SETTINGS := 7
 const MENU_DOG_HOME := 8
 const MENU_DOG_TOGGLE := 9
+const MENU_MUSIC := 10
 const MENU_EXIT := 99
 const BADMINTON_ANIMATION := "badminton"
 const MUSIC_ANIMATION := "music"
@@ -84,6 +85,9 @@ const CareFeedback := preload("res://scripts/care_feedback.gd")
 const AIChatPanel := preload("res://scripts/ai_chat_panel.gd")
 const ProactiveCompanion := preload("res://scripts/proactive_companion.gd")
 const ForegroundAppMonitor := preload("res://scripts/foreground_app_monitor.gd")
+const MusicSessionMonitor := preload("res://scripts/music_session_monitor.gd")
+const MusicLyricsService := preload("res://scripts/music_lyrics_service.gd")
+const MusicPlayerPanel := preload("res://scripts/music_player_panel.gd")
 const CompanionSettingsPanel := preload("res://scripts/companion_settings_panel.gd")
 const BadmintonGamePanel := preload("res://scripts/badminton_game_panel.gd")
 const DogCompanion := preload("res://scripts/dog_companion.gd")
@@ -154,6 +158,9 @@ var _care_feedback: PetCareFeedback
 var _ai_chat_panel: PetAIChatPanel
 var _proactive_companion: PetProactiveCompanion
 var _foreground_app_monitor: PetForegroundAppMonitor
+var _music_session_monitor: PetMusicSessionMonitor
+var _music_lyrics_service: PetMusicLyricsService
+var _music_player_panel: PetMusicPlayerPanel
 var _companion_settings_panel: PetCompanionSettingsPanel
 var _badminton_game: PetBadmintonGame
 var _dog_companion: PetDogCompanion
@@ -166,6 +173,10 @@ var _dog_interaction_cooldown := 0.0
 var _dog_interaction_pending := false
 var _dog_interaction_pending_time := 0.0
 var _dog_auto_interaction_time := 0.0
+var _music_activity_live := false
+var _last_music_track_id := ""
+var _last_music_spoken_track_id := ""
+var _music_has_greeted := false
 var _need_lines := {
 	"fullness": {"text": "肚子在小声提醒我啦……可以一起吃点东西吗？", "emoji": "🍰"},
 	"hydration": {"text": "有一点口渴，想喝杯甜甜的饮料。", "emoji": "💧"},
@@ -221,6 +232,8 @@ func _ready() -> void:
 		call_deferred("_open_ai_chat_panel")
 	if startup_args.has("--show-companion-settings") or user_args.has("--show-companion-settings"):
 		call_deferred("_open_companion_settings")
+	if startup_args.has("--show-music-player") or user_args.has("--show-music-player"):
+		call_deferred("_open_music_player")
 	if startup_args.has("--show-badminton-game") or user_args.has("--show-badminton-game"):
 		call_deferred("_open_badminton_game")
 	if startup_args.has("--show-dog-home") or user_args.has("--show-dog-home"):
@@ -250,6 +263,7 @@ func _process(delta: float) -> void:
 		elif state != State.ACTIVITY and _speech_time_left <= 0.0:
 			_say_random()
 	_update_dog_runtime(delta)
+	_update_music_runtime()
 	_update_proactive_context()
 	if _dragon_launch_time_left > 0.0:
 		_dragon_launch_time_left -= delta
@@ -353,6 +367,21 @@ func _create_care_features() -> void:
 	add_child(_foreground_app_monitor)
 	_foreground_app_monitor.set_enabled(_proactive_companion.is_foreground_monitoring_enabled())
 
+	_music_session_monitor = MusicSessionMonitor.new()
+	_music_session_monitor.name = "MusicSessionMonitor"
+	_music_session_monitor.track_changed.connect(_on_music_track_changed)
+	_music_session_monitor.playback_changed.connect(_on_music_playback_changed)
+	add_child(_music_session_monitor)
+
+	_music_lyrics_service = MusicLyricsService.new()
+	_music_lyrics_service.name = "MusicLyricsService"
+	add_child(_music_lyrics_service)
+
+	_music_player_panel = MusicPlayerPanel.new()
+	_music_player_panel.name = "MusicPlayerPanel"
+	_music_player_panel.configure(_cjk_font, _music_session_monitor, _music_lyrics_service)
+	add_child(_music_player_panel)
+
 	_companion_settings_panel = CompanionSettingsPanel.new()
 	_companion_settings_panel.name = "CompanionSettingsPanel"
 	_companion_settings_panel.configure(_cjk_font, _proactive_companion, _foreground_app_monitor)
@@ -415,6 +444,7 @@ func _on_care_action_performed(result: Dictionary) -> void:
 		if activity == BADMINTON_ANIMATION:
 			_open_badminton_game()
 		else:
+			_music_activity_live = false
 			_active_activity = activity
 			_enter_state(State.ACTIVITY)
 	if bool(result.get("success", false)) and _care_feedback:
@@ -437,6 +467,68 @@ func _on_proactive_message(text: String, emoji: String) -> void:
 	if _scripted_dialogue_time_left > 0.0:
 		return
 	_show_bubble(text, 8.0, emoji)
+
+
+func _on_music_track_changed(info: Dictionary) -> void:
+	var track_id := String(info.get("track_id", ""))
+	var title := String(info.get("title", "")).strip_edges()
+	if track_id.is_empty() or title.is_empty() or track_id == _last_music_track_id:
+		return
+	_last_music_track_id = track_id
+	if String(info.get("playback_status", "")) != "playing" or state == State.SLEEP:
+		return
+	_last_music_spoken_track_id = track_id
+	var short_title := title.left(16) + ("…" if title.length() > 16 else "")
+	if not _music_has_greeted:
+		_music_has_greeted = true
+		_show_bubble("原来你也在听《%s》呀，我陪你一起听 (^_^)" % short_title, 4.8, "🎧")
+	elif _rng.randf() < 0.58:
+		var lines := [
+			"换成《%s》啦，这首我也想听听。" % short_title,
+			"《%s》响起来了，一起听吧 (*^_^*)" % short_title,
+			"这首是《%s》呀，我来帮你轻轻打拍子。" % short_title
+		]
+		_show_bubble(String(lines[_rng.randi_range(0, lines.size() - 1)]), 4.5, "🎵")
+	if _proactive_companion:
+		_proactive_companion.note_interaction("用户正在用%s听《%s》" % [String(info.get("source_label", "音乐播放器")), short_title])
+
+
+func _on_music_playback_changed(playing: bool, info: Dictionary) -> void:
+	var track_id := String(info.get("track_id", ""))
+	var title := String(info.get("title", "")).strip_edges()
+	if not playing or track_id.is_empty() or title.is_empty() or track_id == _last_music_spoken_track_id or state == State.SLEEP:
+		return
+	_last_music_spoken_track_id = track_id
+	_music_has_greeted = true
+	var short_title := title.left(16) + ("…" if title.length() > 16 else "")
+	_show_bubble("《%s》开始播放啦，我也戴好耳机了 (^_^)" % short_title, 4.6, "🎧")
+
+
+func _update_music_runtime() -> void:
+	if not _music_session_monitor:
+		return
+	var playing := _music_session_monitor.is_playing()
+	if _music_activity_live and not playing:
+		_music_activity_live = false
+		if _active_activity == MUSIC_ANIMATION:
+			_active_activity = ""
+			if state == State.ACTIVITY:
+				_enter_state(State.IDLE)
+				_state_duration = 4.0
+		return
+	if not playing or state == State.SLEEP or state == State.WAKE:
+		return
+	if state == State.ACTIVITY:
+		if _active_activity == MUSIC_ANIMATION and not _music_activity_live:
+			_music_activity_live = true
+			_state_duration = -1.0
+		return
+	if state != State.IDLE and state != State.WALK:
+		return
+	_music_activity_live = true
+	_active_activity = MUSIC_ANIMATION
+	_enter_state(State.ACTIVITY)
+	_state_duration = -1.0
 
 
 func _dog_display_name() -> String:
@@ -677,6 +769,8 @@ func _open_badminton_game() -> void:
 		_companion_settings_panel.hide_panel()
 	if _dog_home_panel and _dog_home_panel.visible:
 		_dog_home_panel.hide_panel()
+	if _music_player_panel and _music_player_panel.visible:
+		_music_player_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
@@ -707,6 +801,7 @@ func _open_badminton_game() -> void:
 
 func _on_badminton_game_started() -> void:
 	_hide_bubble()
+	_music_activity_live = false
 	_active_activity = BADMINTON_ANIMATION
 	_enter_state(State.ACTIVITY)
 	_state_duration = -1.0
@@ -772,10 +867,11 @@ func _update_proactive_context() -> void:
 	var care_open: bool = _care_panel != null and _care_panel.visible
 	var chat_open: bool = _ai_chat_panel != null and _ai_chat_panel.visible
 	var settings_open: bool = _companion_settings_panel != null and _companion_settings_panel.visible
+	var music_open: bool = _music_player_panel != null and _music_player_panel.visible
 	var dog_home_open: bool = _dog_home_panel != null and _dog_home_panel.visible
 	var badminton_open: bool = _badminton_game != null and _badminton_game.visible
 	var quiet_state: bool = state == State.IDLE or state == State.WALK
-	var available: bool = quiet_state and not _dragging and _bubble_time_left <= 0.0 and not menu_open and not care_open and not chat_open and not settings_open and not dog_home_open and not badminton_open
+	var available: bool = quiet_state and not _dragging and _bubble_time_left <= 0.0 and not menu_open and not care_open and not chat_open and not settings_open and not music_open and not dog_home_open and not badminton_open
 	var foreground_info := {}
 	if _foreground_app_monitor and _foreground_app_monitor.is_enabled():
 		foreground_info = _foreground_app_monitor.get_current_info()
@@ -820,6 +916,8 @@ func _open_dog_home_panel() -> void:
 		_ai_chat_panel.hide_panel()
 	if _companion_settings_panel and _companion_settings_panel.visible:
 		_companion_settings_panel.hide_panel()
+	if _music_player_panel and _music_player_panel.visible:
+		_music_player_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
@@ -856,6 +954,8 @@ func _open_ai_chat_panel() -> void:
 		_companion_settings_panel.hide_panel()
 	if _dog_home_panel and _dog_home_panel.visible:
 		_dog_home_panel.hide_panel()
+	if _music_player_panel and _music_player_panel.visible:
+		_music_player_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
@@ -882,6 +982,8 @@ func _open_care_panel() -> void:
 		_companion_settings_panel.hide_panel()
 	if _dog_home_panel and _dog_home_panel.visible:
 		_dog_home_panel.hide_panel()
+	if _music_player_panel and _music_player_panel.visible:
+		_music_player_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
@@ -913,6 +1015,8 @@ func _open_companion_settings() -> void:
 		_ai_chat_panel.hide_panel()
 	if _dog_home_panel and _dog_home_panel.visible:
 		_dog_home_panel.hide_panel()
+	if _music_player_panel and _music_player_panel.visible:
+		_music_player_panel.hide_panel()
 	var screen := DisplayServer.window_get_current_screen()
 	if screen < 0:
 		screen = 0
@@ -926,6 +1030,36 @@ func _open_companion_settings() -> void:
 	panel_x = clampi(panel_x, usable.position.x, usable.end.x - panel_size.x)
 	var panel_y := clampi(pet_position.y - 80, usable.position.y, usable.end.y - panel_size.y)
 	_companion_settings_panel.open_at(Vector2i(panel_x, panel_y))
+
+
+func _open_music_player() -> void:
+	if not _music_player_panel:
+		return
+	if _proactive_companion:
+		_proactive_companion.mark_user_activity()
+	if _context_menu and _context_menu.visible:
+		_context_menu.hide()
+	if _care_panel and _care_panel.visible:
+		_care_panel.hide_panel()
+	if _ai_chat_panel and _ai_chat_panel.visible:
+		_ai_chat_panel.hide_panel()
+	if _companion_settings_panel and _companion_settings_panel.visible:
+		_companion_settings_panel.hide_panel()
+	if _dog_home_panel and _dog_home_panel.visible:
+		_dog_home_panel.hide_panel()
+	var screen := DisplayServer.window_get_current_screen()
+	if screen < 0:
+		screen = 0
+	var usable := DisplayServer.screen_get_usable_rect(screen)
+	var pet_position := DisplayServer.window_get_position()
+	var pet_size := DisplayServer.window_get_size()
+	var panel_size: Vector2i = _music_player_panel.size
+	var panel_x := pet_position.x + pet_size.x + 14
+	if panel_x + panel_size.x > usable.end.x:
+		panel_x = pet_position.x - panel_size.x - 14
+	panel_x = clampi(panel_x, usable.position.x, usable.end.x - panel_size.x)
+	var panel_y := clampi(pet_position.y - 70, usable.position.y, usable.end.y - panel_size.y)
+	_music_player_panel.open_at(Vector2i(panel_x, panel_y))
 
 
 func _on_dragon_easter_egg_requested() -> void:
@@ -1050,7 +1184,7 @@ func _sync_companion_settings() -> void:
 func _show_bubble(message: String, duration := 2.8, emoji := "") -> void:
 	if state == State.SLEEP:
 		return
-	if state == State.ACTIVITY:
+	if state == State.ACTIVITY and _active_activity != MUSIC_ANIMATION:
 		return
 	_bubble.set_message(message, emoji)
 	_bubble_time_left = duration
@@ -1090,6 +1224,7 @@ func _create_context_menu() -> void:
 	_context_menu.name = "PetContextMenu"
 	_context_menu.min_size = Vector2i(224, 0)
 	_context_menu.add_item("打开她的日常", MENU_CARE)
+	_context_menu.add_item("音乐中心", MENU_MUSIC)
 	_context_menu.add_item("小狗的小屋", MENU_DOG_HOME)
 	_context_menu.add_item("让小狗回窝", MENU_DOG_TOGGLE)
 	_context_menu.add_separator()
@@ -1150,6 +1285,7 @@ func _style_context_menu() -> void:
 	_context_menu.add_theme_constant_override("h_separation", 8)
 	_context_menu.add_theme_constant_override("v_separation", 5)
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_CARE), load(CARE_UI_DIR + "/action_comfort.png") as Texture2D)
+	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_MUSIC), load("res://assets/care/runtime/items/headphones.png") as Texture2D)
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_DOG_HOME), load("res://assets/dog/source/blue_ui/1-animations/textures/4_spritesheet.png") as Texture2D)
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_DOG_TOGGLE), load("res://assets/dog/source/furniture/1-animations/textures/1_spritesheet.png") as Texture2D)
 	_context_menu.set_item_icon(_context_menu.get_item_index(MENU_TALK), _load_ui_texture(17))
@@ -1229,6 +1365,8 @@ func _on_context_menu_id_pressed(id: int) -> void:
 	match id:
 		MENU_CARE:
 			_open_care_panel()
+		MENU_MUSIC:
+			_open_music_player()
 		MENU_DOG_HOME:
 			_open_dog_home_panel()
 		MENU_DOG_TOGGLE:
@@ -1624,6 +1762,8 @@ func _finish_activity() -> void:
 		_finish_dragon_ride(false)
 		return
 	var completed_activity := _active_activity
+	if completed_activity == MUSIC_ANIMATION:
+		_music_activity_live = false
 	_active_activity = ""
 	_enter_state(State.IDLE)
 	_state_duration = 4.0

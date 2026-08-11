@@ -367,3 +367,14 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - AI 请求若在小狗回窝前已经发出，返回后会按当前状态再次校验；含动态名字或小狗关键词的返回会被丢弃并换成本地普通陪伴台词。已经排队等待气泡结束的小狗消息也会在回窝状态同步后立即清除。
 - `scripts/pet.gd`：小狗可用状态变化时立即刷新主动陪伴上下文，消除 `send_home()` 与下一帧常规上下文更新之间的竞态窗口。用户主动执行回窝时的确认气泡仍保留。
 - `tools/proactive_dog_home_qa.gd`：覆盖回窝后的队列清理、近期上下文过滤、本地候选过滤和重新叫出后的话题恢复。最终输出 `PROACTIVE_DOG_HOME_QA_OK inactive_suppressed=true active_restored=true`，Godot 4.7.1 脚本解析通过。
+## 2026-08-11 本地音乐播放器检测与音乐中心 1.0
+
+- `assets/music/`：归档用户提供的 `音乐播放器ui.zip`，完整 Godot 导出保存在 `source/`，运行时语义化素材位于 `runtime/ui/`；主窗口使用 1678x951 花边播放器面板缩放到 820x465，文字与状态由 Godot 原生字体绘制。
+- `tools/music_session_bridge.cs/.exe`：通过 Windows GSMTC 读取 QQ音乐、网易云音乐媒体会话，返回来源、歌名、歌手、专辑、播放状态、进度、时长、控制能力和封面；支持播放、暂停、上一首、下一首及跳转进度。桥接器仅读取 Windows 已公开给系统媒体控件的信息，不读取播放器账号、Cookie 或歌单。
+- `tools/build_music_session_bridge.ps1`：桥接器可复现构建脚本；系统限制 PowerShell 脚本时使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/build_music_session_bridge.ps1`。
+- `scripts/music_session_monitor.gd`：约 1.5 秒异步轮询桥接器，主线程不等待外部进程；命令与状态读取串行执行，并在播放中估算平滑进度。
+- `scripts/music_lyrics_service.gd`：根据歌名、歌手和时长匹配 QQ音乐搜索结果，达到可信阈值后获取同步歌词；匹配失败时不显示可能错误的歌词。当前歌词仅保存在运行期内存缓存。
+- `scripts/music_player_panel.gd` + `music_progress_control.gd`：新增可拖动音乐中心，支持封面、来源、播放状态、原生高清文字、三行同步歌词、播放控制和真实可移动玫瑰进度条；窗口层级为普通窗口，关闭/最小化后可再次打开，打开和按钮悬停动画不改变透明度。
+- `scripts/pet.gd`：右键菜单新增“音乐中心”；检测到播放后，空闲桌宠会持续循环现有 16 帧听歌动画，暂停或播放器停止后回到待机。睡觉、羽毛球、掌机、骑龙和小狗互动优先，不会被音乐状态强制打断；首次播放和部分切歌会用歌曲名主动说话。
+- 验证：C# 桥接器重新编译成功；无活动媒体会话时返回结构化空状态；`tools/music_feature_qa.gd` 用“晴天 / 周杰伦 / 269秒”真实请求获取并排序 63 行同步歌词；Godot 4.7.1 新脚本逐个 `--check-only` 通过，音乐窗口实际启动日志无脚本错误。测试时 QQ音乐进程存在但尚未注册活动 GSMTC 会话，需实际播放歌曲后验证客户端提供的封面与控制能力。
+- 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260811-225203`。
