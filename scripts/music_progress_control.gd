@@ -2,6 +2,7 @@ extends Control
 class_name PetMusicProgressControl
 
 signal seek_requested(ratio: float)
+signal dragging_changed(dragging: bool)
 
 const ROSE_TEXTURE := preload("res://assets/music/runtime/ui/rose.png")
 
@@ -9,14 +10,18 @@ var value := 0.0:
 	set(next_value):
 		value = clampf(next_value, 0.0, 1.0)
 		queue_redraw()
-var interactive := false
+var interactive := false:
+	set(next_value):
+		interactive = next_value
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if interactive else Control.CURSOR_ARROW
+		queue_redraw()
 var _dragging := false
 
 
 func _ready() -> void:
-	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	tooltip_text = "拖动播放进度"
 	custom_minimum_size = Vector2(100, 34)
+	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if interactive else Control.CURSOR_ARROW
 	queue_redraw()
 
 
@@ -39,10 +44,13 @@ func _gui_input(event: InputEvent) -> void:
 	if not interactive:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		_dragging = event.pressed
 		if event.pressed:
+			_dragging = true
+			dragging_changed.emit(true)
 			_set_from_mouse(event.position.x)
 		else:
+			_dragging = false
+			dragging_changed.emit(false)
 			seek_requested.emit(value)
 		accept_event()
 	elif event is InputEventMouseMotion and _dragging:
@@ -53,6 +61,10 @@ func _gui_input(event: InputEvent) -> void:
 func _set_from_mouse(mouse_x: float) -> void:
 	var width := maxf(size.x - 32.0, 1.0)
 	value = clampf((mouse_x - 16.0) / width, 0.0, 1.0)
+
+
+func is_dragging() -> bool:
+	return _dragging
 
 
 func _rounded_box(color: Color, radius: float) -> StyleBoxFlat:

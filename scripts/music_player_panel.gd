@@ -6,6 +6,13 @@ const BASE_SIZE := Vector2(1678, 951)
 const PANEL_SIZE := Vector2i(820, 465)
 const UI_SCALE := 820.0 / 1678.0
 const ProgressControl := preload("res://scripts/music_progress_control.gd")
+const PREVIOUS_REGION := Rect2(423, 747, 135, 137)
+const PLAY_REGION := Rect2(592, 738, 195, 151)
+const PAUSE_REGION := Rect2(817, 746, 143, 139)
+const NEXT_REGION := Rect2(999, 748, 139, 137)
+const PREVIOUS_RECT := Rect2(555, 746, 135, 137)
+const PLAY_PAUSE_RECT := Rect2(742, 738, 195, 151)
+const NEXT_RECT := Rect2(988, 746, 139, 137)
 
 var _font: Font
 var _monitor: PetMusicSessionMonitor
@@ -26,15 +33,18 @@ var _elapsed_label: Label
 var _duration_label: Label
 var _progress: PetMusicProgressControl
 var _previous_button: TextureButton
-var _play_button: TextureButton
-var _pause_button: TextureButton
+var _play_pause_button: TextureButton
 var _next_button: TextureButton
+var _play_texture: AtlasTexture
+var _pause_texture: AtlasTexture
 var _panel_tween: Tween
 var _button_tweens: Dictionary = {}
 var _session: Dictionary = {"found": false}
 var _lyrics: Array[Dictionary] = []
 var _lyrics_track_id := ""
 var _current_lyric_index := -1
+var _seek_preview_ratio := -1.0
+var _seek_preview_until_ms := 0
 
 
 func _init() -> void:
@@ -104,7 +114,7 @@ func _build_ui() -> void:
 
 	var background := TextureRect.new()
 	background.size = BASE_SIZE
-	background.texture = load(UI_DIR + "/player_panel.png") as Texture2D
+	background.texture = load(UI_DIR + "/player_panel_clean.png") as Texture2D
 	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	background.stretch_mode = TextureRect.STRETCH_SCALE
 	background.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
@@ -119,23 +129,23 @@ func _build_ui() -> void:
 	drag_handle.gui_input.connect(_on_drag_handle_gui_input)
 	_root.add_child(drag_handle)
 
-	var minimize_button := _make_atlas_button(Rect2(1452, 42, 112, 112), "收起")
+	var minimize_button := _make_atlas_button(Rect2(1452, 42, 112, 112), Rect2(1452, 42, 112, 112), "收起")
 	minimize_button.pressed.connect(hide_panel)
 	_root.add_child(minimize_button)
-	var close_button := _make_atlas_button(Rect2(1558, 40, 112, 116), "关闭")
+	var close_button := _make_atlas_button(Rect2(1558, 40, 112, 116), Rect2(1558, 40, 112, 116), "关闭")
 	close_button.pressed.connect(hide_panel)
 	_root.add_child(close_button)
 
-	_previous_button = _make_atlas_button(Rect2(423, 747, 135, 137), "上一首")
+	_previous_button = _make_atlas_button(PREVIOUS_REGION, PREVIOUS_RECT, "上一首")
 	_previous_button.pressed.connect(_on_previous_pressed)
 	_root.add_child(_previous_button)
-	_play_button = _make_atlas_button(Rect2(592, 738, 195, 151), "播放")
-	_play_button.pressed.connect(_on_play_pressed)
-	_root.add_child(_play_button)
-	_pause_button = _make_atlas_button(Rect2(817, 746, 143, 139), "暂停")
-	_pause_button.pressed.connect(_on_pause_pressed)
-	_root.add_child(_pause_button)
-	_next_button = _make_atlas_button(Rect2(999, 748, 139, 137), "下一首")
+	_play_texture = _make_atlas_texture(PLAY_REGION)
+	_pause_texture = _make_atlas_texture(PAUSE_REGION)
+	_play_pause_button = _make_atlas_button(PLAY_REGION, PLAY_PAUSE_RECT, "播放")
+	_play_pause_button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+	_play_pause_button.pressed.connect(_on_play_pause_pressed)
+	_root.add_child(_play_pause_button)
+	_next_button = _make_atlas_button(NEXT_REGION, NEXT_RECT, "下一首")
 	_next_button.pressed.connect(_on_next_pressed)
 	_root.add_child(_next_button)
 
@@ -165,7 +175,7 @@ func _build_ui() -> void:
 	_album_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_text_layer.add_child(_album_label)
 
-	_source_label = _make_label("本地播放器检测", Vector2(55, 68), Vector2(180, 28), 17, Color("a65f70"))
+	_source_label = _make_label("等待播放器", Vector2(55, 68), Vector2(180, 28), 17, Color("a65f70"))
 	_text_layer.add_child(_source_label)
 	_status_label = _make_label("正在寻找音乐…", Vector2(595, 72), Vector2(165, 26), 15, Color("a77a82"))
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -183,12 +193,6 @@ func _build_ui() -> void:
 	_lyrics_source_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_text_layer.add_child(_lyrics_source_label)
 
-	var progress_back := ColorRect.new()
-	progress_back.position = Vector2(103, 326)
-	progress_back.size = Vector2(588, 35)
-	progress_back.color = Color("fff8f5")
-	progress_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_text_layer.add_child(progress_back)
 	_progress = ProgressControl.new()
 	_progress.position = Vector2(105, 327)
 	_progress.size = Vector2(580, 33)
@@ -201,19 +205,24 @@ func _build_ui() -> void:
 	_text_layer.add_child(_duration_label)
 
 
-func _make_atlas_button(region: Rect2, tooltip: String) -> TextureButton:
+func _make_atlas_texture(region: Rect2) -> AtlasTexture:
 	var atlas := AtlasTexture.new()
 	atlas.atlas = load(UI_DIR + "/player_panel.png") as Texture2D
 	atlas.region = region
+	return atlas
+
+
+func _make_atlas_button(source_region: Rect2, display_rect: Rect2, tooltip: String) -> TextureButton:
+	var atlas := _make_atlas_texture(source_region)
 	var button := TextureButton.new()
-	button.position = region.position
-	button.size = region.size
+	button.position = display_rect.position
+	button.size = display_rect.size
 	button.texture_normal = atlas
 	button.ignore_texture_size = true
 	button.stretch_mode = TextureButton.STRETCH_SCALE
 	button.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	button.tooltip_text = tooltip
-	button.pivot_offset = region.size * 0.5
+	button.pivot_offset = display_rect.size * 0.5
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.mouse_entered.connect(_animate_button.bind(button, Vector2.ONE * 1.075, 0.12))
 	button.mouse_exited.connect(_animate_button.bind(button, Vector2.ONE, 0.14))
@@ -247,11 +256,12 @@ func _on_session_updated(info: Dictionary) -> void:
 		_title_label.text = "等待播放器"
 		_artist_label.text = "打开 QQ音乐 或 网易云音乐"
 		_album_label.text = "检测到播放后会自动同步"
-		_source_label.text = "本地播放器检测"
+		_source_label.text = "等待播放器"
 		_status_label.text = "暂无媒体会话"
 		_cover.texture = null
 		_progress.interactive = false
 		_progress.value = 0.0
+		_seek_preview_ratio = -1.0
 		_set_controls_enabled(false)
 		_show_lyric_message("歌词会在播放后出现")
 		_update_progress()
@@ -260,10 +270,12 @@ func _on_session_updated(info: Dictionary) -> void:
 	_title_label.text = String(_session.get("title", "未知歌曲"))
 	_artist_label.text = String(_session.get("artist", "未知歌手"))
 	_album_label.text = String(_session.get("album", ""))
-	_source_label.text = String(_session.get("source_label", "本地播放器")) + " · 本地检测"
+	_source_label.text = String(_session.get("source_label", "本地播放器"))
 	var status := String(_session.get("playback_status", "unknown"))
 	_status_label.text = "正在播放" if status == "playing" else ("已暂停" if status == "paused" else "等待播放")
-	_progress.interactive = bool(_session.get("can_seek", false))
+	_progress.interactive = int(_session.get("duration_ms", 0)) > 0
+	_progress.tooltip_text = "拖动播放进度" if bool(_session.get("can_seek", false)) else "可尝试拖动，部分播放器可能不响应"
+	_update_play_pause_state()
 	_set_controls_enabled(true)
 	_update_progress()
 
@@ -273,6 +285,7 @@ func _on_track_changed(info: Dictionary) -> void:
 	_lyrics.clear()
 	_lyrics_track_id = String(info.get("track_id", ""))
 	_current_lyric_index = -1
+	_seek_preview_ratio = -1.0
 	_show_lyric_message("正在找这首歌的歌词…")
 	_load_cover()
 	if _lyrics_service:
@@ -304,7 +317,14 @@ func _on_bridge_error(message: String) -> void:
 func _update_progress() -> void:
 	var position_ms := int(_session.get("position_ms", 0))
 	var duration_ms := int(_session.get("duration_ms", 0))
-	_progress.value = clampf(float(position_ms) / float(duration_ms), 0.0, 1.0) if duration_ms > 0 else 0.0
+	if _progress.is_dragging():
+		position_ms = roundi(float(duration_ms) * _progress.value)
+	elif _seek_preview_ratio >= 0.0 and Time.get_ticks_msec() < _seek_preview_until_ms:
+		position_ms = roundi(float(duration_ms) * _seek_preview_ratio)
+		_progress.value = _seek_preview_ratio
+	else:
+		_seek_preview_ratio = -1.0
+		_progress.value = clampf(float(position_ms) / float(duration_ms), 0.0, 1.0) if duration_ms > 0 else 0.0
 	_elapsed_label.text = _format_time(position_ms)
 	_duration_label.text = _format_time(duration_ms)
 
@@ -345,19 +365,24 @@ func _load_cover() -> void:
 		_cover.texture = null
 		return
 	var image := Image.new()
-	var error := image.load_png_from_buffer(bytes)
-	if error != OK:
+	var error := ERR_FILE_UNRECOGNIZED
+	if bytes.size() >= 8 and bytes[0] == 0x89 and bytes[1] == 0x50 and bytes[2] == 0x4e and bytes[3] == 0x47:
+		error = image.load_png_from_buffer(bytes)
+	elif bytes.size() >= 3 and bytes[0] == 0xff and bytes[1] == 0xd8 and bytes[2] == 0xff:
 		error = image.load_jpg_from_buffer(bytes)
-	if error != OK:
+	elif bytes.size() >= 12 and bytes.slice(0, 4).get_string_from_ascii() == "RIFF" and bytes.slice(8, 12).get_string_from_ascii() == "WEBP":
 		error = image.load_webp_from_buffer(bytes)
 	if error == OK and not image.is_empty():
 		_cover.texture = ImageTexture.create_from_image(image)
+	else:
+		_cover.texture = null
 
 
 func _set_controls_enabled(enabled: bool) -> void:
 	_previous_button.disabled = not enabled or not bool(_session.get("can_previous", false))
-	_play_button.disabled = not enabled or not bool(_session.get("can_play", true))
-	_pause_button.disabled = not enabled or not bool(_session.get("can_pause", true))
+	var playing := String(_session.get("playback_status", "")) == "playing"
+	var can_toggle := bool(_session.get("can_pause", true)) if playing else bool(_session.get("can_play", true))
+	_play_pause_button.disabled = not enabled or not can_toggle
 	_next_button.disabled = not enabled or not bool(_session.get("can_next", false))
 
 
@@ -366,14 +391,9 @@ func _on_previous_pressed() -> void:
 		_monitor.skip_previous()
 
 
-func _on_play_pressed() -> void:
+func _on_play_pause_pressed() -> void:
 	if _monitor:
-		_monitor.play()
-
-
-func _on_pause_pressed() -> void:
-	if _monitor:
-		_monitor.pause()
+		_monitor.toggle_play_pause()
 
 
 func _on_next_pressed() -> void:
@@ -384,7 +404,17 @@ func _on_next_pressed() -> void:
 func _on_seek_requested(ratio: float) -> void:
 	var duration_ms := int(_session.get("duration_ms", 0))
 	if _monitor and duration_ms > 0:
+		_seek_preview_ratio = clampf(ratio, 0.0, 1.0)
+		_seek_preview_until_ms = Time.get_ticks_msec() + 2200
 		_monitor.seek_to(roundi(float(duration_ms) * ratio))
+
+
+func _update_play_pause_state() -> void:
+	if not _play_pause_button:
+		return
+	var playing := String(_session.get("playback_status", "")) == "playing"
+	_play_pause_button.texture_normal = _pause_texture if playing else _play_texture
+	_play_pause_button.tooltip_text = "暂停" if playing else "播放"
 
 
 func _on_drag_handle_gui_input(event: InputEvent) -> void:

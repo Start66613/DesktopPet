@@ -379,3 +379,12 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 验证：C# 桥接器重新编译成功；无活动媒体会话时返回结构化空状态；`tools/music_feature_qa.gd` 用“晴天 / 周杰伦 / 269秒”真实请求获取并排序 63 行同步歌词；Godot 4.7.1 新脚本逐个 `--check-only` 通过，音乐窗口实际启动日志无脚本错误。测试时 QQ音乐进程存在但尚未注册活动 GSMTC 会话，需实际播放歌曲后验证客户端提供的封面与控制能力。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260811-225203`。
 - 音乐窗口首次实机显示发现缩放中心未补偿，导致底图整体向右下偏移、文字与底图分层；`music_player_panel.gd` 已改为统一左上角布局原点，并在打开动画中同时补偿缩放位置。修复前备份：`D:\game creat\DesktopPet_backup_20260811-231635`，修复版实机启动日志无脚本错误。
+
+## 2026-08-11 音乐中心控制区修正
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260811-232421`。
+- `tools/build_music_player_background.ps1` 从原始面板的干净内层纹理重建底部区域，生成 `player_panel_clean.png`；移除了素材中烘焙的静态进度条和七个重复控制按钮，保留外框、花边、角落玫瑰与两侧爱心。
+- `music_player_panel.gd` 改为上一首、单一播放/暂停、下一首三个真实按钮；中央按钮根据系统播放状态切换播放与暂停图案，不再同时出现两个功能相反的按钮。左上角来源文案只显示 `QQ音乐`、`网易云音乐` 或等待状态。
+- 删除进度条下方的白色 `ColorRect` 遮罩。`music_progress_control.gd` 在拖动期间保持用户位置，不再被逐帧媒体状态覆盖；松手后立即显示预览位置并向本地播放器发送跳转请求。QQ音乐当前通过 GSMTC 报告 `can_seek=false`，且实测会接受命令但可能不改变真实位置，因此界面允许尝试拖动，最终仍以播放器返回的真实进度为准。
+- 封面加载先检查文件头再选择 PNG、JPEG 或 WebP 解码，QQ音乐的 JPEG 封面不再触发无意义的 PNG 损坏日志。
+- Godot 4.7.1 资源导入、两个修改脚本的 `--check-only`、完整音乐窗口 headless 运行均通过；歌词 QA 继续返回 `MUSIC_FEATURE_QA_OK source=QQ音乐歌词 lines=63`。
