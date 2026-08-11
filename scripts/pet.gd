@@ -644,6 +644,7 @@ func _on_dog_availability_changed(adopted: bool, active: bool) -> void:
 	_refresh_context_menu_dog_items()
 	if _dog_home_panel:
 		_dog_home_panel.refresh_state(adopted, active, _dog_companion.get_dog_name() if _dog_companion else "")
+	_update_proactive_context()
 
 
 func _on_dog_home_action(action: String) -> void:

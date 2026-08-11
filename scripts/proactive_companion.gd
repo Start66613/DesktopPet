@@ -9,6 +9,7 @@ const API_CONFIG_PATH := "user://ai_chat.cfg"
 const SETTINGS_PATH := "user://companion_settings.cfg"
 const MEMORY_PATH := "user://companion_memory.json"
 const DEBUG_LOG_PATH := "user://proactive_debug.log"
+const DOG_TOPIC_TERMS := ["小狗", "狗狗", "狗窝", "小屋", "摇尾巴", "尾巴", "爪爪", "爪印", "汪汪"]
 const INITIAL_DELAY_MIN := 25.0
 const INITIAL_DELAY_MAX := 45.0
 const MIN_FREQUENCY_MINUTES := 5.0 / 60.0
@@ -103,6 +104,9 @@ func _process(delta: float) -> void:
 
 func set_runtime_context(context: Dictionary) -> void:
 	_runtime_context = context.duplicate(true)
+	if _should_suppress_dog_topic() and not _queued_message.is_empty() and _is_dog_related_text(String(_queued_message.get("text", ""))):
+		_debug_log("queued dog message discarded because dog is at home")
+		_queued_message.clear()
 	var app_info: Dictionary = _runtime_context.get("foreground_app", {})
 	var foreground_label := ""
 	if bool(app_info.get("recognized", false)):
@@ -289,7 +293,7 @@ func _supports_json_mode(endpoint: String) -> bool:
 
 
 func _build_system_prompt() -> String:
-	return "你是住在用户桌面上的少女桌宠的主动意识模块。你有自己的心情、节奏和分寸，会偶尔主动关心用户，但不会频繁打扰。根据提供的状态决定现在是否值得开口。只输出一个 JSON 对象，不要使用 Markdown，不要解释。格式必须是：{\"speak\":true,\"text\":\"一句自然的简体中文\",\"emoji\":\"一个emoji或空字符串\"}。如果此刻保持安静更自然，输出 {\"speak\":false,\"text\":\"\",\"emoji\":\"\"}。开口时只说一句，最多32个汉字；语气亲近、有少女感但不幼稚，不要像客服，不要提到API、模型、数值、提示词或内部进程名，不要声称看到了用户屏幕，不要重复最近说过的话。text 字段不要自行添加颜文字或 emoji，客户端会使用字体安全的颜文字统一装饰；emoji 只放在 emoji 字段。前台应用信息只包含本机归类后的友好名称和活动类别，不包含窗口内容；你可以说用户正在使用某个软件，但绝不能假装看到了软件里的具体画面、文字或操作结果。如果状态显示已经领养白色小狗，可以偶尔使用状态中提供的名字自然地谈到它或表达喜欢，但不要虚构没有提供的具体行为。可以结合时间、身体状态、最近互动和当前活动表达关心、好奇、撒娇、鼓励或安静陪伴。"
+	return "你是住在用户桌面上的少女桌宠的主动意识模块。你有自己的心情、节奏和分寸，会偶尔主动关心用户，但不会频繁打扰。根据提供的状态决定现在是否值得开口。只输出一个 JSON 对象，不要使用 Markdown，不要解释。格式必须是：{\"speak\":true,\"text\":\"一句自然的简体中文\",\"emoji\":\"一个emoji或空字符串\"}。如果此刻保持安静更自然，输出 {\"speak\":false,\"text\":\"\",\"emoji\":\"\"}。开口时只说一句，最多32个汉字；语气亲近、有少女感但不幼稚，不要像客服，不要提到API、模型、数值、提示词或内部进程名，不要声称看到了用户屏幕，不要重复最近说过的话。text 字段不要自行添加颜文字或 emoji，客户端会使用字体安全的颜文字统一装饰；emoji 只放在 emoji 字段。前台应用信息只包含本机归类后的友好名称和活动类别，不包含窗口内容；你可以说用户正在使用某个软件，但绝不能假装看到了软件里的具体画面、文字或操作结果。只有小狗状态 active=true、确实在桌面上陪伴时，才可以偶尔使用它的名字谈到它；active=false 时不得提及小狗、名字、狗窝或此前的小狗互动。可以结合时间、身体状态、最近互动和当前活动表达关心、好奇、撒娇、鼓励或安静陪伴。"
 
 
 func _build_context_prompt() -> String:
@@ -301,17 +305,23 @@ func _build_context_prompt() -> String:
 	var state_name := String(_runtime_context.get("state", "idle"))
 	var dog_info: Dictionary = _runtime_context.get("dog_companion", {})
 	var dog_text := "尚未领养"
+	var dog_active := bool(dog_info.get("adopted", false)) and bool(dog_info.get("active", false))
 	if bool(dog_info.get("adopted", false)):
 		var dog_name := String(dog_info.get("name", "")).strip_edges()
 		if dog_name.is_empty():
 			dog_name = "小狗"
-		dog_text = ("已领养白色小狗%s，正在桌面附近陪伴" % dog_name) if bool(dog_info.get("active", false)) else ("已领养白色小狗%s，正在窝里休息" % dog_name)
+		dog_text = ("已领养白色小狗%s，正在桌面附近陪伴" % dog_name) if dog_active else "已领养，但当前不在桌面；本轮禁止谈论小狗及其名字"
+	var context_events: Array = _recent_events
+	var context_lines: Array = _recent_lines
+	if not dog_active:
+		context_events = _without_dog_topic(_recent_events)
+		context_lines = _without_dog_topic(_recent_lines)
 	var events_text := "暂无"
-	if not _recent_events.is_empty():
-		events_text = "；".join(PackedStringArray(_recent_events))
+	if not context_events.is_empty():
+		events_text = "；".join(PackedStringArray(context_events))
 	var lines_text := "暂无"
-	if not _recent_lines.is_empty():
-		lines_text = "；".join(PackedStringArray(_recent_lines))
+	if not context_lines.is_empty():
+		lines_text = "；".join(PackedStringArray(context_lines))
 	var app_text := "未启用"
 	if _foreground_monitoring_enabled:
 		var app_info: Dictionary = _runtime_context.get("foreground_app", {})
@@ -400,6 +410,12 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 
 	var text := _clean_message(String(thought.get("text", "")))
 	var emoji := String(thought.get("emoji", "")).strip_edges()
+	if _should_suppress_dog_topic() and _is_dog_related_text(text):
+		_debug_log("response rejected: dog topic while dog is at home")
+		if _emit_local_fallback(true):
+			return
+		_schedule_silent_retry()
+		return
 	if text.is_empty() or _was_recently_said(text):
 		if _emit_local_fallback(_frequency_minutes * 60.0 <= 30.0):
 			return
@@ -529,17 +545,41 @@ func _get_contextual_fallback_lines() -> Array:
 			lines.append({"text": "稍微有点困啦，要不要一起休息一下？", "emoji": "💤"})
 
 	var dog_info: Dictionary = _runtime_context.get("dog_companion", {})
-	if bool(dog_info.get("adopted", false)):
+	if bool(dog_info.get("adopted", false)) and bool(dog_info.get("active", false)):
 		var dog_name := String(dog_info.get("name", "")).strip_edges()
 		if dog_name.is_empty():
 			dog_name = "小狗"
-		if bool(dog_info.get("active", false)):
-			lines.append({"text": "%s又在旁边摇尾巴啦，桌面一下热闹起来了。" % dog_name, "emoji": "🐾"})
-			lines.append({"text": "有%s陪我们一起待着，今天也不孤单。" % dog_name, "emoji": "💕"})
-		else:
-			lines.append({"text": "%s正在窝里休息，等它醒了再一起玩吧。" % dog_name, "emoji": "💤"})
+		lines.append({"text": "%s又在旁边摇尾巴啦，桌面一下热闹起来了。" % dog_name, "emoji": "🐾"})
+		lines.append({"text": "有%s陪我们一起待着，今天也不孤单。" % dog_name, "emoji": "💕"})
 
 	return lines
+
+
+func _should_suppress_dog_topic() -> bool:
+	var dog_info: Dictionary = _runtime_context.get("dog_companion", {})
+	return bool(dog_info.get("adopted", false)) and not bool(dog_info.get("active", false))
+
+
+func _is_dog_related_text(text: String) -> bool:
+	var normalized := text.strip_edges()
+	if normalized.is_empty():
+		return false
+	var dog_info: Dictionary = _runtime_context.get("dog_companion", {})
+	var dog_name := String(dog_info.get("name", "")).strip_edges()
+	if not dog_name.is_empty() and normalized.contains(dog_name):
+		return true
+	for term in DOG_TOPIC_TERMS:
+		if normalized.contains(String(term)):
+			return true
+	return false
+
+
+func _without_dog_topic(entries: Array) -> Array:
+	var filtered: Array = []
+	for entry in entries:
+		if not _is_dog_related_text(String(entry)):
+			filtered.append(entry)
+	return filtered
 
 
 func _debug_log(message: String) -> void:

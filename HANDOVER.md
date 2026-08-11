@@ -359,3 +359,11 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `tools/dog_actions_qa.gd`：验证五套动画存在、每套 8 帧、循环标记、开心反馈，以及睡下/醒来、坐下/站起完整状态切换。最终输出 `DOG_ACTIONS_QA_OK animations=5 frames_each=8 scale=1.7`。
 - `docs/DOG_SYSTEM_MEOWA_PROMPTS.md`：新增拖动真实桌面窗口的分层实现、两套小狗拉扯动画提示词，以及女孩训斥和小狗认错的分层生成流程与英文提示词。
 - Godot 4.7.1 资源导入和脚本解析通过；完整桌宠场景在隔离领养存档下运行 20 秒退出码为 0，无脚本错误。
+
+## 2026-08-09 小狗回窝话题门控
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260809-134019`；备份包含 `3913` 个条目、文件总计 `237990293` 字节。
+- `scripts/proactive_companion.gd`：只有 `dog_companion.active=true` 时，AI 与本地兜底才允许主动谈到小狗。回窝状态不再加入“正在窝里休息”候选，并过滤近期小狗互动与小狗台词，避免弱模型顺着旧上下文继续谈论。
+- AI 请求若在小狗回窝前已经发出，返回后会按当前状态再次校验；含动态名字或小狗关键词的返回会被丢弃并换成本地普通陪伴台词。已经排队等待气泡结束的小狗消息也会在回窝状态同步后立即清除。
+- `scripts/pet.gd`：小狗可用状态变化时立即刷新主动陪伴上下文，消除 `send_home()` 与下一帧常规上下文更新之间的竞态窗口。用户主动执行回窝时的确认气泡仍保留。
+- `tools/proactive_dog_home_qa.gd`：覆盖回窝后的队列清理、近期上下文过滤、本地候选过滤和重新叫出后的话题恢复。最终输出 `PROACTIVE_DOG_HOME_QA_OK inactive_suppressed=true active_restored=true`，Godot 4.7.1 脚本解析通过。
