@@ -98,7 +98,7 @@ func _build_ui() -> void:
 	_root = Control.new()
 	_root.size = BASE_SIZE
 	_root.scale = Vector2.ONE * UI_SCALE
-	_root.pivot_offset = BASE_SIZE * 0.5
+	_root.pivot_offset = Vector2.ZERO
 	_root.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_root)
 
@@ -141,7 +141,7 @@ func _build_ui() -> void:
 
 	_text_layer = Control.new()
 	_text_layer.size = Vector2(PANEL_SIZE)
-	_text_layer.pivot_offset = Vector2(PANEL_SIZE) * 0.5
+	_text_layer.pivot_offset = Vector2.ZERO
 	_text_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_text_layer.z_index = 20
 	add_child(_text_layer)
@@ -408,12 +408,18 @@ func _animate_button(button: Control, target_scale: Vector2, duration: float) ->
 func _play_open_animation() -> void:
 	if _panel_tween and _panel_tween.is_valid():
 		_panel_tween.kill()
-	_root.scale = Vector2.ONE * (UI_SCALE * 0.965)
-	_text_layer.scale = Vector2.ONE * 0.965
+	var start_factor := 0.965
+	var root_start_scale := UI_SCALE * start_factor
+	_root.scale = Vector2.ONE * root_start_scale
+	_root.position = (Vector2(PANEL_SIZE) - BASE_SIZE * root_start_scale) * 0.5
+	_text_layer.scale = Vector2.ONE * start_factor
+	_text_layer.position = Vector2(PANEL_SIZE) * (1.0 - start_factor) * 0.5
 	_panel_tween = create_tween()
 	_panel_tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_panel_tween.tween_property(_root, "scale", Vector2.ONE * UI_SCALE, 0.2)
+	_panel_tween.parallel().tween_property(_root, "position", Vector2.ZERO, 0.2)
 	_panel_tween.parallel().tween_property(_text_layer, "scale", Vector2.ONE, 0.2)
+	_panel_tween.parallel().tween_property(_text_layer, "position", Vector2.ZERO, 0.2)
 
 
 func _format_time(milliseconds: int) -> String:

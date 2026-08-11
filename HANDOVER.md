@@ -378,3 +378,4 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `scripts/pet.gd`：右键菜单新增“音乐中心”；检测到播放后，空闲桌宠会持续循环现有 16 帧听歌动画，暂停或播放器停止后回到待机。睡觉、羽毛球、掌机、骑龙和小狗互动优先，不会被音乐状态强制打断；首次播放和部分切歌会用歌曲名主动说话。
 - 验证：C# 桥接器重新编译成功；无活动媒体会话时返回结构化空状态；`tools/music_feature_qa.gd` 用“晴天 / 周杰伦 / 269秒”真实请求获取并排序 63 行同步歌词；Godot 4.7.1 新脚本逐个 `--check-only` 通过，音乐窗口实际启动日志无脚本错误。测试时 QQ音乐进程存在但尚未注册活动 GSMTC 会话，需实际播放歌曲后验证客户端提供的封面与控制能力。
 - 本轮修改前完整备份：`D:\game creat\DesktopPet_backup_20260811-225203`。
+- 音乐窗口首次实机显示发现缩放中心未补偿，导致底图整体向右下偏移、文字与底图分层；`music_player_panel.gd` 已改为统一左上角布局原点，并在打开动画中同时补偿缩放位置。修复前备份：`D:\game creat\DesktopPet_backup_20260811-231635`，修复版实机启动日志无脚本错误。
