@@ -167,6 +167,7 @@ var _music_player_panel: PetMusicPlayerPanel
 var _companion_settings_panel: PetCompanionSettingsPanel
 var _screen_awareness_service: PetScreenAwarenessService
 var _screen_awareness_panel: PetScreenAwarenessPanel
+var _pending_screen_message: Dictionary = {}
 var _badminton_game: PetBadmintonGame
 var _dog_companion: PetDogCompanion
 var _dog_home_panel: PetDogHomePanel
@@ -405,7 +406,9 @@ func _create_care_features() -> void:
 	_screen_awareness_service.name = "ScreenAwarenessService"
 	_screen_awareness_service.analysis_ready.connect(_on_screen_analysis_ready)
 	_screen_awareness_service.analysis_failed.connect(_on_screen_analysis_failed)
+	_screen_awareness_service.settings_changed.connect(_sync_screen_monitoring)
 	add_child(_screen_awareness_service)
+	_sync_screen_monitoring()
 
 	_screen_awareness_panel = ScreenAwarenessPanel.new()
 	_screen_awareness_panel.name = "ScreenAwarenessPanel"
@@ -935,6 +938,13 @@ func _update_proactive_context() -> void:
 	var foreground_info := {}
 	if _foreground_app_monitor and _foreground_app_monitor.is_enabled():
 		foreground_info = _foreground_app_monitor.get_current_info()
+	if _screen_awareness_service:
+		_screen_awareness_service.set_foreground_context(foreground_info)
+	if available and not _pending_screen_message.is_empty():
+		var pending := _pending_screen_message
+		_pending_screen_message = {}
+		_on_proactive_message(String(pending.get("text", "")), String(pending.get("emoji", "👀")))
+		available = false
 	var music_info := {}
 	if _music_player_panel:
 		music_info = _music_player_panel.get_music_context()
@@ -1170,14 +1180,14 @@ func _on_screen_analysis_ready(result: Dictionary) -> void:
 	var suggestion := String(result.get("suggestion", "")).strip_edges()
 	if speech.is_empty():
 		speech = suggestion
-	if bool(result.get("speak", true)) and not speech.is_empty() and state != State.SLEEP:
-		_on_proactive_message(speech, String(result.get("emoji", "👀")))
+	if bool(result.get("should_speak", result.get("speak", false))) and not speech.is_empty() and state != State.SLEEP:
+		_pending_screen_message = {"text": speech, "emoji": String(result.get("emoji", "👀"))}
 	if _proactive_companion and not suggestion.is_empty():
-		_proactive_companion.note_interaction("屏幕感知刚刚给出了一条本机即时建议")
+		_proactive_companion.note_interaction("画面感知理解了当前任务并给出一条即时建议")
 
 
 func _on_screen_analysis_failed(message: String) -> void:
-	if state != State.SLEEP:
+	if state != State.SLEEP and _screen_awareness_service and _screen_awareness_service.get_last_observation_reason() == "manual":
 		_on_proactive_message(message, "👀")
 
 
@@ -1295,9 +1305,16 @@ func _on_proactive_enabled_changed(enabled: bool) -> void:
 
 
 func _sync_companion_settings() -> void:
-	if _foreground_app_monitor and _proactive_companion:
-		_foreground_app_monitor.set_enabled(_proactive_companion.is_foreground_monitoring_enabled())
+	_sync_screen_monitoring()
 	_on_proactive_enabled_changed(_proactive_companion.is_enabled() if _proactive_companion else false)
+
+
+func _sync_screen_monitoring() -> void:
+	if not _foreground_app_monitor:
+		return
+	var companion_monitoring := _proactive_companion != null and _proactive_companion.is_foreground_monitoring_enabled()
+	var screen_monitoring := _screen_awareness_service != null and _screen_awareness_service.is_enabled()
+	_foreground_app_monitor.set_enabled(companion_monitoring or screen_monitoring)
 
 
 func _show_bubble(message: String, duration := 2.8, emoji := "") -> void:

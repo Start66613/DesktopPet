@@ -760,6 +760,7 @@ func _load_settings() -> void:
 
 func _save_settings() -> void:
 	var config := ConfigFile.new()
+	config.load(SETTINGS_PATH)
 	config.set_value("companion", "enabled", _enabled)
 	config.set_value("companion", "frequency_minutes", _frequency_minutes)
 	config.set_value("companion", "foreground_monitoring", _foreground_monitoring_enabled)

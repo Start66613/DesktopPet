@@ -442,3 +442,14 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 屏幕感知复用 AI 聊天接口和 Key，可单独填写视觉模型名；留空则使用聊天模型。文本模型不支持图片时会用桌宠口吻提示换视觉模型，不会假装看到了画面。屏幕分析提示词禁止抄录密码、密钥、聊天内容、账号和私人文件名，只返回场景概述、建议和一句桌宠台词。
 - 新增 `tools/companion_music_screen_qa.gd` 和 `tools/music_fullscreen_qa.gd`。Godot 4.7.1 脚本解析、音乐上下文/歌词兜底/隐私门逻辑、全屏窗口 `1920x1080` 与退出恢复均通过；普通播放器、屏幕授权窗、全屏播放器三种直达运行日志错误数为 0。
 - 正式包已重建：安装器 SHA-256 `dee88b47176abb53204f113e906058a9eead84192a8c359f3c9321ca5786fd68`，便携包 SHA-256 `32c53432d4c265e5c077283477f8a5ba16ad7f5ad105bcaaf858a5d5118821c7`。
+
+## 2026-08-12 画面感知 2.0
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260812-200958`（1837 个文件，130289671 bytes）。
+- 参考豆豆 AI 游戏助手公开页面的场景识别、主动提示、攻略问询、成就赞赏、情景共情和跨场景记忆思路，将原先的单截图描述升级为“识别当前任务和重要事件，再决定是否打扰”。新增游戏、工作、日常和自动四种模式。
+- 新增 `scripts/screen_change_detector.gd`：自动观察平时只在本地比较 `48x27` 灰度采样，不调用 API；明显变化后等待两次稳定采样，再取约 1.5 秒内的三个关键帧。新增 `scripts/screen_context_memory.gd`：只在内存保留最多 8 条结构化任务摘要，30 分钟自动过期，敏感结果不进入记忆。
+- `scripts/screen_awareness_service.gd` 支持应用切换、明显变化、定时复查和手动观察原因；关键帧最长边压到 1120、JPEG 质量 0.68，仅用内存 buffer 上传，从不写截图文件。分析结果增加场景类型、事件、置信度、重要度、任务摘要和敏感标志；低于 0.62 置信度或低优先级重复场景保持安静，台词等待桌宠空闲后再显示。
+- 感知设置窗扩至 `680x477`，分为“智能观察”和“隐私与额度”两页。支持总授权、智能观察、立即暂停、四种模式、单独视觉模型、每天 1 至 60 次 API 上限、敏感应用黑名单、上传原因/状态提示及清空短期画面记忆。默认仍关闭；暂停或命中黑名单时不会截屏和上传。
+- 前台进程监控现在由主动陪伴或画面感知任一功能按需启用；修复重复同步时每帧重置进程轮询的问题。`proactive_companion.gd` 保存陪伴设置时先加载同一配置文件，避免覆盖画面感知配置段。
+- 新增 `tools/screen_awareness_2_qa.gd`。所有修改脚本 `--check-only`、完整 headless 项目运行、变化检测/短期记忆/额度/黑名单/置信度/不落盘 QA、预编译动画生成及 Windows Release 导出均通过。最终构建日志为 `logs/screen_awareness_2_build.log`，无 `SCRIPT ERROR`、`Parse Error`、`Compile Error` 或 Godot `ERROR:`。
+- 正式 Release 用隔离用户目录和 `--show-screen-awareness` 直达参数启动 7 秒，进程持续运行且日志无错误；便携 ZIP 不包含 `.env`、API/陪伴配置或临时 EXE，PCK 对开发 `.env` 中的密钥扫描无命中。暂停开关会立即终止尚未完成的关键帧采集或视觉请求。安装器 SHA-256 `92a0bad49e274435fb1e5e7ff905d6e426ecc7cb1644db9048550ff10e492132`，便携包 SHA-256 `4228600d818fe45ec57fb4dad75bed179723b8694f618be0d0e6c3de7473d496`。

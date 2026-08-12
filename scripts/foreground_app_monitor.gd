@@ -43,7 +43,10 @@ func _exit_tree() -> void:
 
 
 func set_enabled(value: bool) -> void:
-	_enabled = value and OS.get_name() == "Windows" and not OS.get_cmdline_args().has("--headless")
+	var next_enabled := value and OS.get_name() == "Windows" and not OS.get_cmdline_args().has("--headless")
+	if _enabled == next_enabled:
+		return
+	_enabled = next_enabled
 	_poll_time = 0.0 if _enabled else POLL_INTERVAL
 	if not _enabled and not _current_info.is_empty():
 		_current_info.clear()
