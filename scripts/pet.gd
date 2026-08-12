@@ -9,6 +9,7 @@ extends Node2D
 const SPRITES_DIR := "res://assets/sprites"
 const MOVEMENT_DIR := "res://assets/movement"
 const ACTIVITY_DIR := "res://assets/activities"
+const COMPILED_SPRITE_FRAMES_PATH := "res://assets/runtime/pet_sprite_frames.tres"
 const SPRITE_SCALE := 1.0
 const PET_VERTICAL_OFFSET := 20.0
 const DEFAULT_FPS := 8.0
@@ -200,8 +201,9 @@ func _ready() -> void:
 	# 让主视口背景真正透明（仅靠项目设置不够）
 	get_viewport().transparent_bg = true
 
-	# 扫描文件夹构建动画库
-	sprite.sprite_frames = _build_sprite_frames()
+	# 发布版使用预编译动画库；开发资源缺失时仍可动态构建。
+	var compiled_frames := load(COMPILED_SPRITE_FRAMES_PATH) as SpriteFrames
+	sprite.sprite_frames = compiled_frames if compiled_frames else _build_sprite_frames()
 	sprite.scale = Vector2(SPRITE_SCALE, SPRITE_SCALE)
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	sprite.centered = true

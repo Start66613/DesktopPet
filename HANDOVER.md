@@ -415,3 +415,12 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 正式产物：`dist/DesktopPet-0.1.0-Setup.exe`、`dist/DesktopPet-0.1.0-Portable.zip`、`dist/SHA256SUMS.txt`。安装器支持开始菜单、桌面快捷方式、可选开机启动和 Windows 设置中的卸载入口，默认安装到当前用户目录且无需管理员权限。
 - 便携版使用隔离的 `APPDATA/LOCALAPPDATA` 启动 15 秒，进程持续运行，主动陪伴采用新用户默认 `90.00s`，日志无 `SCRIPT ERROR` 或 `ERROR`。安装器随后完成静默安装、安装目录启动 15 秒和静默卸载，三个阶段退出码均为 `0`，卸载后安装目录已移除。
 - PCK 已按 `.env` 中的真实密钥值做二进制扫描，命中数为 `0`；便携包不包含 `.env`、开发者 API Key 或已有用户存档。安装器尚未使用项目方代码签名证书，陌生电脑首次下载时可能出现 Windows SmartScreen 提示；正式公开发行建议购买代码签名证书并签署最终安装器。
+
+## 2026-08-12 Windows Release 透明角色与任务栏图标修复
+
+- 修复前完整备份：`D:\game creat\DesktopPet_backup_20260812-125427`。
+- 初版包错误地把 Godot 4.7.1 编辑器 GUI EXE 当作便携运行时，导致窗口标题含 `(DEBUG)`、任务栏使用 Godot 默认图标，并在 Release 资源重映射下暴露透明角色问题。现在已下载官方 `Godot_v4.7.1-stable_export_templates.tpz`，核对官方 SHA-256 `86409db6200b6f8fd3230989c2d2002851f3dd18acf11d7bdbafddf5a0dd0f72` 后提取 `windows_release_x86_64.exe` 到 `.release-cache/`。
+- `export_presets.cfg` 改为显式使用正式 Windows Release 模板；`tools/build_windows_release.ps1` 改用 `--export-release`，缺少正式模板时直接失败，不再允许编辑器 EXE 降级。构建开始前若 `build/windows` 被运行中的桌宠占用且无法清空，也会直接失败，防止 `DesktopPet.exe~RF*.TMP` 被误收入安装包。
+- 角色透明的根因是基础待机动画原先在运行时用 `DirAccess` 扫描 `assets/sprites/**/*.png`。Release 导出把 PNG 转成内部纹理资源后，原始 `.png` 不再能按开发目录方式枚举，因此角色动画库为空，但气泡仍能显示。新增 `tools/build_pet_sprite_frames.gd`，构建前把待机、移动、睡觉、娱乐、骑龙和人狗互动合并为 `assets/runtime/pet_sprite_frames.tres`；当前共 19 个动画、185 帧。`scripts/pet.gd` 发布运行时优先加载该静态资源，开发环境仍保留动态构建回退。
+- `project.godot` 的运行图标改为 `release/app_icon.png`；`tools/build_app_icon.ps1` 现在生成包含 `16/32/48/64/128/256` 六个 PNG 图层的 ICO。Godot 导出不再报告图标尺寸缺失，安装后 EXE 提取图标已确认为桌宠头像。
+- 最终 Release 透明窗口使用 Windows `PrintWindow(PW_RENDERFULLCONTENT)` 检查合成表面：窗口标题为 `DesktopPet`，角色主体采样像素 3137、彩色主体像素 1437，日志错误数 0。安装包隔离安装后的 EXE 再次检查为主体像素 3138、彩色像素 1454，安装目录无 `.env`、临时 EXE 或 `*.TMP`；静默卸载退出码 0 且安装目录已移除。

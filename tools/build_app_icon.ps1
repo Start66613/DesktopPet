@@ -33,24 +33,61 @@ finally {
     $source.Dispose()
 }
 
-# ICO files may contain PNG-compressed 256x256 images. This preserves alpha and
-# avoids quality loss from the legacy bitmap icon encoder.
-$pngBytes = [System.IO.File]::ReadAllBytes($pngPath)
+# Store every Windows taskbar and shell size as a PNG-compressed ICO layer.
+# The 256px layer remains the source of truth; smaller layers are pre-scaled so
+# Windows does not fall back to the executable's default icon.
+$iconSizes = @(16, 32, 48, 64, 128, 256)
+$iconLayers = @()
+$master = [System.Drawing.Bitmap]::FromFile($pngPath)
+try {
+    foreach ($size in $iconSizes) {
+        $layer = New-Object System.Drawing.Bitmap $size, $size, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $layerGraphics = [System.Drawing.Graphics]::FromImage($layer)
+        $layerStream = New-Object System.IO.MemoryStream
+        try {
+            $layerGraphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+            $layerGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $layerGraphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            $layerGraphics.Clear([System.Drawing.Color]::Transparent)
+            $layerGraphics.DrawImage($master, 0, 0, $size, $size)
+            $layer.Save($layerStream, [System.Drawing.Imaging.ImageFormat]::Png)
+            $iconLayers += ,$layerStream.ToArray()
+        }
+        finally {
+            $layerStream.Dispose()
+            $layerGraphics.Dispose()
+            $layer.Dispose()
+        }
+    }
+}
+finally {
+    $master.Dispose()
+}
+
 $stream = New-Object System.IO.MemoryStream
 $writer = New-Object System.IO.BinaryWriter($stream)
 try {
     $writer.Write([UInt16]0)
     $writer.Write([UInt16]1)
-    $writer.Write([UInt16]1)
-    $writer.Write([Byte]0)
-    $writer.Write([Byte]0)
-    $writer.Write([Byte]0)
-    $writer.Write([Byte]0)
-    $writer.Write([UInt16]1)
-    $writer.Write([UInt16]32)
-    $writer.Write([UInt32]$pngBytes.Length)
-    $writer.Write([UInt32]22)
-    $writer.Write($pngBytes)
+    $writer.Write([UInt16]$iconLayers.Count)
+
+    $dataOffset = 6 + 16 * $iconLayers.Count
+    for ($index = 0; $index -lt $iconLayers.Count; $index++) {
+        $size = $iconSizes[$index]
+        $layerBytes = $iconLayers[$index]
+        $writer.Write([Byte]$(if ($size -eq 256) { 0 } else { $size }))
+        $writer.Write([Byte]$(if ($size -eq 256) { 0 } else { $size }))
+        $writer.Write([Byte]0)
+        $writer.Write([Byte]0)
+        $writer.Write([UInt16]1)
+        $writer.Write([UInt16]32)
+        $writer.Write([UInt32]$layerBytes.Length)
+        $writer.Write([UInt32]$dataOffset)
+        $dataOffset += $layerBytes.Length
+    }
+    foreach ($layerBytes in $iconLayers) {
+        $writer.Write($layerBytes)
+    }
     [System.IO.File]::WriteAllBytes($icoPath, $stream.ToArray())
 }
 finally {
