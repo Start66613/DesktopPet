@@ -453,3 +453,9 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 前台进程监控现在由主动陪伴或画面感知任一功能按需启用；修复重复同步时每帧重置进程轮询的问题。`proactive_companion.gd` 保存陪伴设置时先加载同一配置文件，避免覆盖画面感知配置段。
 - 新增 `tools/screen_awareness_2_qa.gd`。所有修改脚本 `--check-only`、完整 headless 项目运行、变化检测/短期记忆/额度/黑名单/置信度/不落盘 QA、预编译动画生成及 Windows Release 导出均通过。最终构建日志为 `logs/screen_awareness_2_build.log`，无 `SCRIPT ERROR`、`Parse Error`、`Compile Error` 或 Godot `ERROR:`。
 - 正式 Release 用隔离用户目录和 `--show-screen-awareness` 直达参数启动 7 秒，进程持续运行且日志无错误；便携 ZIP 不包含 `.env`、API/陪伴配置或临时 EXE，PCK 对开发 `.env` 中的密钥扫描无命中。暂停开关会立即终止尚未完成的关键帧采集或视觉请求。安装器 SHA-256 `92a0bad49e274435fb1e5e7ff905d6e426ecc7cb1644db9048550ff10e492132`，便携包 SHA-256 `4228600d818fe45ec57fb4dad75bed179723b8694f618be0d0e6c3de7473d496`。
+
+## 2026-08-12 画面感知窗口布局修复
+
+- 修复前备份：`D:\game creat\DesktopPet_backup_20260812-210352`。
+- 初版把 `1478x1037` 设计坐标、`680x477` 原生窗口和根节点缩放混用，导致子窗口内容裁切、开关文字重叠。`screen_awareness_panel.gd` 已改为统一 `680x477` 真实像素布局：背景仅由 TextureRect 缩放，所有文字、按钮和点击区域使用相同坐标系；授权/智能观察与暂停/陪伴模式分成两行，视觉模型独占一行。
+- 用 Windows `PrintWindow` 直接抓取真正的 `680x477` 子窗口验证，标题、标签页、三组开关、模式、模型输入、状态和底部按钮均完整，无重叠或越界。标题去掉可爱字体显示异常的拉丁数字；服务启动时会根据授权、自动观察和暂停状态显示正确文案。

@@ -57,6 +57,14 @@ var _last_scene_signature := ""
 
 func _ready() -> void:
 	_load_settings()
+	if not _enabled:
+		_last_status = "等待授权"
+	elif _paused:
+		_last_status = "已暂停，不会截取或上传画面"
+	elif _auto_enabled:
+		_last_status = "正在本地观察画面变化"
+	else:
+		_last_status = "已授权，仅在你点击时观察"
 	_request = HTTPRequest.new()
 	_request.timeout = 75.0
 	_request.use_threads = true
