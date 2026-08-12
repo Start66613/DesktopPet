@@ -1879,9 +1879,11 @@ func _move_window(delta: float) -> void:
 func _play(anim: String) -> void:
 	if sprite.sprite_frames and sprite.sprite_frames.has_animation(anim):
 		sprite.play(anim)
-	elif sprite.sprite_frames and sprite.sprite_frames.get_animation_count() > 0:
-		# 找不到指定动画时退回到第一个可用动画，避免黑屏
-		sprite.play(sprite.sprite_frames.get_animation_names()[0])
+	elif sprite.sprite_frames:
+		var available_animations := sprite.sprite_frames.get_animation_names()
+		if not available_animations.is_empty():
+			# 找不到指定动画时退回到第一个可用动画，避免黑屏。
+			sprite.play(available_animations[0])
 
 
 func _begin_drag_visual() -> void:

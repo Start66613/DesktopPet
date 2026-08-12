@@ -7,7 +7,7 @@ signal playback_changed(playing: bool, info: Dictionary)
 signal availability_changed(available: bool)
 signal bridge_error(message: String)
 
-const BRIDGE_PATH := "res://tools/music_session_bridge.exe"
+const BRIDGE_FILE_NAME := "music_session_bridge.exe"
 const COVER_PATH := "user://music_session_cover.bin"
 const POLL_INTERVAL := 1.5
 
@@ -138,12 +138,13 @@ func _queue_command(arguments: PackedStringArray) -> void:
 
 
 func _start_job(kind: String, arguments: PackedStringArray) -> void:
-	if not FileAccess.file_exists(BRIDGE_PATH):
+	var bridge_path := _native_helper_path(BRIDGE_FILE_NAME)
+	if not FileAccess.file_exists(bridge_path):
 		_report_error("音乐检测组件缺失")
 		return
 	_worker_kind = kind
 	_worker = Thread.new()
-	var error := _worker.start(_execute_bridge.bind(arguments))
+	var error := _worker.start(_execute_bridge.bind(bridge_path, arguments))
 	if error == OK:
 		_worker_running = true
 	else:
@@ -151,13 +152,20 @@ func _start_job(kind: String, arguments: PackedStringArray) -> void:
 		_report_error("音乐检测线程启动失败")
 
 
-func _execute_bridge(arguments: PackedStringArray) -> Dictionary:
+func _execute_bridge(bridge_path: String, arguments: PackedStringArray) -> Dictionary:
 	var output: Array = []
-	var exit_code := OS.execute(ProjectSettings.globalize_path(BRIDGE_PATH), arguments, output, false, false)
+	var exit_code := OS.execute(bridge_path, arguments, output, false, false)
 	return {
 		"exit_code": exit_code,
 		"output": String(output[0]).strip_edges() if not output.is_empty() else ""
 	}
+
+
+func _native_helper_path(file_name: String) -> String:
+	var installed_path := OS.get_executable_path().get_base_dir().path_join(file_name)
+	if FileAccess.file_exists(installed_path):
+		return installed_path
+	return ProjectSettings.globalize_path("res://tools/" + file_name)
 
 
 func _finish_job(result: Dictionary) -> void:

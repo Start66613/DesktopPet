@@ -396,3 +396,22 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 桥接器与监控层新增 GSMTC 的随机播放、重复模式能力与命令。音乐窗口恢复一个播放顺序按钮，统一表达顺序播放、列表循环、单曲循环和随机播放，不再显示多个重复按钮；当前 QQ音乐报告 `can_repeat=false`、`can_shuffle=false`，因此按钮保留并提示在 QQ音乐内切换，不伪装成已生效。
 - 左上角播放器来源从 `x=55` 移到 `x=91`，避开底图自带音符装饰；歌名、歌手、专辑继续使用固定宽度和省略号约束，修复编码后不会再以超长乱码覆盖底图。
 - 新增 `tools/music_bridge_qa.gd`，实测 Godot 收到 `QQ音乐 / 同桌的你 / 胡夏`，并验证四个播放模式字段存在；歌词 QA 继续返回 63 行，音乐窗口完整 headless 运行无错误。
+
+## 2026-08-11 音乐封面嵌入与动效
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260811-235320`。
+- `music_player_panel.gd` 将封面从 `168x148` 收至 `168x132`，底边停在蝴蝶结前；新增暖白内衬、粉色细边和 CanvasItem 圆角遮罩，四角半径 `12px`，重点贴合底图相框上方两个圆弧。封面切换时仅做 `0.24s` 淡入，不改变相框布局。
+- 三行歌词根据时间索引方向滑动：正常播放从下向上 `10px`，回退/拖回进度时从上向下；前后行与当前行使用不同的初始透明度，当前行附带轻微 `0.96 -> 1.0` 回弹，完整过渡约 `0.3s`。歌词错误或等待文案会先重置 Tween，避免残留偏移。
+- 播放/暂停状态切换采用单按钮图标变换：先缩至 `0.82` 并旋转约 `6°`，替换图案后回弹至 `1.08` 再归位，总时长约 `0.32s`；切换时会终止同按钮的悬停 Tween，避免动画互相争抢。
+- Godot 4.7.1 `--check-only` 和完整音乐窗口 headless 运行通过，无 Shader、Tween 或脚本错误。
+
+## 2026-08-12 Windows 小正式版 0.1.0
+
+- 发布前完整备份：`D:\game creat\DesktopPet_backup_20260812-114914`（另有同轮早期备份 `D:\game creat\DesktopPet_backup_20260812-114822`）。
+- `project.godot` 增加 `config/version="0.1.0"`；`export_presets.cfg` 增加 `Windows Desktop` 预设，并排除 `.env`、日志、开发工具、交接文档和原始资源 ZIP。
+- 新增 `tools/build_windows_release.ps1`、`tools/build_app_icon.ps1` 与 `release/` 发布资料。脚本会重新编译两个 Windows 辅助程序、导出 PCK、生成便携 ZIP、调用 Inno Setup 生成当前用户安装器，并输出 SHA-256 校验文件。
+- 当前机器没有 Godot 4.7.1 正式导出模板，因此本版临时旁置完全同版本的官方 Godot GUI 运行时；功能已验证，但运行目录和安装包比使用正式模板更大。以后将 `windows_release_x86_64.exe` 传给构建脚本的 `-WindowsTemplatePath` 即可缩小体积。
+- `scripts/foreground_app_monitor.gd` 和 `scripts/music_session_monitor.gd` 优先从主程序同目录加载辅助程序，开发环境继续回退到 `res://tools/`。`scripts/pet.gd` 修复发布运行时调用不存在的 `SpriteFrames.get_animation_count()` 导致的启动错误。
+- 正式产物：`dist/DesktopPet-0.1.0-Setup.exe`、`dist/DesktopPet-0.1.0-Portable.zip`、`dist/SHA256SUMS.txt`。安装器支持开始菜单、桌面快捷方式、可选开机启动和 Windows 设置中的卸载入口，默认安装到当前用户目录且无需管理员权限。
+- 便携版使用隔离的 `APPDATA/LOCALAPPDATA` 启动 15 秒，进程持续运行，主动陪伴采用新用户默认 `90.00s`，日志无 `SCRIPT ERROR` 或 `ERROR`。安装器随后完成静默安装、安装目录启动 15 秒和静默卸载，三个阶段退出码均为 `0`，卸载后安装目录已移除。
+- PCK 已按 `.env` 中的真实密钥值做二进制扫描，命中数为 `0`；便携包不包含 `.env`、开发者 API Key 或已有用户存档。安装器尚未使用项目方代码签名证书，陌生电脑首次下载时可能出现 Windows SmartScreen 提示；正式公开发行建议购买代码签名证书并签署最终安装器。

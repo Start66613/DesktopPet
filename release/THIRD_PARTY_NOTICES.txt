@@ -1,0 +1,7 @@
+DesktopPet uses Godot Engine, licensed under the MIT License.
+Copyright (c) 2014-present Godot Engine contributors.
+Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.
+https://godotengine.org/license/
+
+DesktopPet bundles ZCOOL KuaiLe, licensed under the SIL Open Font License 1.1.
+The complete font license is included as OFL-ZCOOL-KuaiLe.txt.

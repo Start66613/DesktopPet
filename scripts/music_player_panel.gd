@@ -17,6 +17,9 @@ const PLAY_PAUSE_RECT := Rect2(742, 738, 195, 151)
 const NEXT_RECT := Rect2(988, 746, 139, 137)
 const MODE_RECT := Rect2(1230, 773, 91, 89)
 const PLAY_MODES := ["sequential", "list", "single", "shuffle"]
+const PREVIOUS_LYRIC_POSITION := Vector2(292, 225)
+const CURRENT_LYRIC_POSITION := Vector2(282, 254)
+const NEXT_LYRIC_POSITION := Vector2(292, 298)
 
 var _font: Font
 var _monitor: PetMusicSessionMonitor
@@ -46,6 +49,9 @@ var _pause_texture: AtlasTexture
 var _shuffle_texture: AtlasTexture
 var _repeat_texture: AtlasTexture
 var _panel_tween: Tween
+var _cover_tween: Tween
+var _lyric_tween: Tween
+var _play_state_tween: Tween
 var _button_tweens: Dictionary = {}
 var _session: Dictionary = {"found": false}
 var _lyrics: Array[Dictionary] = []
@@ -56,6 +62,8 @@ var _seek_preview_until_ms := 0
 var _display_mode := "sequential"
 var _requested_mode := ""
 var _mode_request_until_ms := 0
+var _play_state_initialized := false
+var _displayed_playing := false
 
 
 func _init() -> void:
@@ -184,13 +192,27 @@ func _build_ui() -> void:
 	_text_layer.z_index = 20
 	add_child(_text_layer)
 
+	var cover_inset := Panel.new()
+	cover_inset.position = Vector2(87, 115)
+	cover_inset.size = Vector2(172, 136)
+	cover_inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var inset_style := StyleBoxFlat.new()
+	inset_style.bg_color = Color("fff9f5")
+	inset_style.border_color = Color("e7c2c0")
+	inset_style.set_border_width_all(2)
+	inset_style.set_corner_radius_all(14)
+	cover_inset.add_theme_stylebox_override("panel", inset_style)
+	_text_layer.add_child(cover_inset)
+
 	_cover = TextureRect.new()
 	_cover.position = Vector2(89, 117)
-	_cover.size = Vector2(168, 148)
+	_cover.size = Vector2(168, 132)
 	_cover.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_cover.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	_cover.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_cover.pivot_offset = _cover.size * 0.5
+	_cover.material = _make_cover_material(_cover.size, 12.0)
 	_text_layer.add_child(_cover)
 
 	_title_label = _make_label("等待播放器", Vector2(297, 116), Vector2(280, 42), 27, Color("6f4955"))
@@ -209,11 +231,12 @@ func _build_ui() -> void:
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_text_layer.add_child(_status_label)
 
-	_previous_lyric = _make_lyric_label(Vector2(292, 225), 16, Color("bd999f"))
-	_current_lyric = _make_lyric_label(Vector2(282, 254), 21, Color("7b4b58"))
+	_previous_lyric = _make_lyric_label(PREVIOUS_LYRIC_POSITION, 16, Color("bd999f"))
+	_current_lyric = _make_lyric_label(CURRENT_LYRIC_POSITION, 21, Color("7b4b58"))
 	_current_lyric.size = Vector2(405, 42)
+	_current_lyric.pivot_offset = _current_lyric.size * 0.5
 	_current_lyric.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_next_lyric = _make_lyric_label(Vector2(292, 298), 16, Color("bd999f"))
+	_next_lyric = _make_lyric_label(NEXT_LYRIC_POSITION, 16, Color("bd999f"))
 	_text_layer.add_child(_previous_lyric)
 	_text_layer.add_child(_current_lyric)
 	_text_layer.add_child(_next_lyric)
@@ -238,6 +261,34 @@ func _make_atlas_texture(region: Rect2) -> AtlasTexture:
 	atlas.atlas = load(UI_DIR + "/player_panel.png") as Texture2D
 	atlas.region = region
 	return atlas
+
+
+func _make_cover_material(rect_size: Vector2, radius: float) -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = """
+shader_type canvas_item;
+uniform vec2 rect_size = vec2(168.0, 132.0);
+uniform float corner_radius = 12.0;
+varying vec2 local_position;
+
+void vertex() {
+	local_position = VERTEX;
+}
+
+void fragment() {
+	vec4 color = texture(TEXTURE, UV);
+	vec2 half_size = rect_size * 0.5;
+	vec2 rounded = abs(local_position - half_size) - (half_size - vec2(corner_radius));
+	float distance_to_edge = length(max(rounded, vec2(0.0))) + min(max(rounded.x, rounded.y), 0.0) - corner_radius;
+	color.a *= 1.0 - smoothstep(-1.0, 1.0, distance_to_edge);
+	COLOR = color;
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("rect_size", rect_size)
+	material.set_shader_parameter("corner_radius", radius)
+	return material
 
 
 func _make_atlas_button(source_region: Rect2, display_rect: Rect2, tooltip: String) -> TextureButton:
@@ -291,6 +342,8 @@ func _on_session_updated(info: Dictionary) -> void:
 		_progress.value = 0.0
 		_seek_preview_ratio = -1.0
 		_requested_mode = ""
+		_play_state_initialized = false
+		_apply_play_pause_visual(false)
 		_update_mode_state()
 		_set_controls_enabled(false)
 		_show_lyric_message("歌词会在播放后出现")
@@ -371,17 +424,16 @@ func _update_lyrics_for_position(position_ms: int) -> void:
 			break
 	if next_index == _current_lyric_index:
 		return
+	var previous_index := _current_lyric_index
 	_current_lyric_index = next_index
 	_previous_lyric.text = String(_lyrics[next_index - 1].get("text", "")) if next_index > 0 else ""
 	_current_lyric.text = String(_lyrics[next_index].get("text", ""))
 	_next_lyric.text = String(_lyrics[next_index + 1].get("text", "")) if next_index + 1 < _lyrics.size() else ""
-	_current_lyric.scale = Vector2(0.97, 0.97)
-	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(_current_lyric, "scale", Vector2.ONE, 0.18)
+	_animate_lyric_change(1.0 if previous_index < 0 or next_index > previous_index else -1.0)
 
 
 func _show_lyric_message(message: String) -> void:
+	_reset_lyric_visuals()
 	_previous_lyric.text = ""
 	_current_lyric.text = message
 	_next_lyric.text = ""
@@ -405,8 +457,49 @@ func _load_cover() -> void:
 		error = image.load_webp_from_buffer(bytes)
 	if error == OK and not image.is_empty():
 		_cover.texture = ImageTexture.create_from_image(image)
+		_play_cover_reveal()
 	else:
 		_cover.texture = null
+
+
+func _play_cover_reveal() -> void:
+	if _cover_tween and _cover_tween.is_valid():
+		_cover_tween.kill()
+	_cover.modulate.a = 0.0
+	_cover_tween = create_tween()
+	_cover_tween.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_cover_tween.tween_property(_cover, "modulate:a", 1.0, 0.24)
+
+
+func _animate_lyric_change(direction: float) -> void:
+	if _lyric_tween and _lyric_tween.is_valid():
+		_lyric_tween.kill()
+	var labels: Array[Label] = [_previous_lyric, _current_lyric, _next_lyric]
+	var destinations := [PREVIOUS_LYRIC_POSITION, CURRENT_LYRIC_POSITION, NEXT_LYRIC_POSITION]
+	var offset := Vector2(0, 10.0 * direction)
+	for index in labels.size():
+		labels[index].position = destinations[index] + offset
+		labels[index].modulate.a = 0.28 if index != 1 else 0.42
+	_current_lyric.scale = Vector2(0.96, 0.96)
+	_lyric_tween = create_tween()
+	_lyric_tween.set_parallel(true)
+	_lyric_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	for index in labels.size():
+		_lyric_tween.tween_property(labels[index], "position", destinations[index], 0.28)
+		_lyric_tween.tween_property(labels[index], "modulate:a", 1.0, 0.22)
+	_lyric_tween.tween_property(_current_lyric, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK)
+
+
+func _reset_lyric_visuals() -> void:
+	if _lyric_tween and _lyric_tween.is_valid():
+		_lyric_tween.kill()
+	_previous_lyric.position = PREVIOUS_LYRIC_POSITION
+	_current_lyric.position = CURRENT_LYRIC_POSITION
+	_next_lyric.position = NEXT_LYRIC_POSITION
+	_previous_lyric.modulate.a = 1.0
+	_current_lyric.modulate.a = 1.0
+	_next_lyric.modulate.a = 1.0
+	_current_lyric.scale = Vector2.ONE
 
 
 func _set_controls_enabled(enabled: bool) -> void:
@@ -460,6 +553,32 @@ func _update_play_pause_state() -> void:
 	if not _play_pause_button:
 		return
 	var playing := String(_session.get("playback_status", "")) == "playing"
+	if not _play_state_initialized:
+		_play_state_initialized = true
+		_apply_play_pause_visual(playing)
+		return
+	if playing == _displayed_playing:
+		_play_pause_button.tooltip_text = "暂停" if playing else "播放"
+		return
+	if _play_state_tween and _play_state_tween.is_valid():
+		_play_state_tween.kill()
+	if _button_tweens.has(_play_pause_button):
+		var hover_tween: Tween = _button_tweens[_play_pause_button]
+		if hover_tween and hover_tween.is_valid():
+			hover_tween.kill()
+	var turn := deg_to_rad(-6.0 if playing else 6.0)
+	_play_state_tween = create_tween()
+	_play_state_tween.tween_property(_play_pause_button, "scale", Vector2.ONE * 0.82, 0.09).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_play_state_tween.parallel().tween_property(_play_pause_button, "rotation", turn, 0.09).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_play_state_tween.tween_callback(_apply_play_pause_visual.bind(playing))
+	_play_state_tween.tween_property(_play_pause_button, "scale", Vector2.ONE * 1.08, 0.13).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_play_state_tween.parallel().tween_property(_play_pause_button, "rotation", -turn * 0.3, 0.13).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_play_state_tween.tween_property(_play_pause_button, "scale", Vector2.ONE, 0.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_play_state_tween.parallel().tween_property(_play_pause_button, "rotation", 0.0, 0.1).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+func _apply_play_pause_visual(playing: bool) -> void:
+	_displayed_playing = playing
 	_play_pause_button.texture_normal = _pause_texture if playing else _play_texture
 	_play_pause_button.tooltip_text = "暂停" if playing else "播放"
 

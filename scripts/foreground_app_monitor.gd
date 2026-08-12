@@ -4,7 +4,7 @@ class_name PetForegroundAppMonitor
 signal foreground_app_changed(info: Dictionary)
 
 const POLL_INTERVAL := 12.0
-const PROBE_PATH := "res://tools/foreground_app_probe.exe"
+const PROBE_FILE_NAME := "foreground_app_probe.exe"
 const TASKLIST_QUERY := "tasklist.exe"
 const SYSTEM_PROCESSES := [
 	"system", "system idle process", "registry", "smss", "csrss", "wininit", "winlogon",
@@ -73,9 +73,10 @@ func _start_query() -> void:
 
 
 func _query_foreground_process() -> String:
-	if FileAccess.file_exists(PROBE_PATH):
+	var probe_path := _native_helper_path(PROBE_FILE_NAME)
+	if FileAccess.file_exists(probe_path):
 		var probe_output: Array = []
-		var probe_code := OS.execute(ProjectSettings.globalize_path(PROBE_PATH), PackedStringArray(), probe_output, false, false)
+		var probe_code := OS.execute(probe_path, PackedStringArray(), probe_output, false, false)
 		if probe_code == 0 and not probe_output.is_empty():
 			return String(probe_output[0]).strip_edges()
 
@@ -87,6 +88,13 @@ func _query_foreground_process() -> String:
 	if exit_code != 0 or output.is_empty():
 		return ""
 	return _format_tasklist_output(String(output[0]))
+
+
+func _native_helper_path(file_name: String) -> String:
+	var installed_path := OS.get_executable_path().get_base_dir().path_join(file_name)
+	if FileAccess.file_exists(installed_path):
+		return installed_path
+	return ProjectSettings.globalize_path("res://tools/" + file_name)
 
 
 func _format_tasklist_output(raw_output: String) -> String:
