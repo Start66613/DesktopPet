@@ -28,6 +28,20 @@ try {
         }
     }
 
+    # Remove the album frame's baked-in bow and roses. The runtime draws these
+    # as a foreground layer over the live cover so they can occlude it cleanly.
+    $decorationLeft = 136
+    $decorationRight = 570
+    $decorationTop = 486
+    $decorationBottom = 670
+    $decorationSampleLeft = 620
+    for ($y = $decorationTop; $y -le $decorationBottom; $y++) {
+        for ($x = $decorationLeft; $x -le $decorationRight; $x++) {
+            $sampleX = $decorationSampleLeft + ($x - $decorationLeft)
+            $output.SetPixel($x, $y, $source.GetPixel($sampleX, $y))
+        }
+    }
+
     $output.Save($outputPath, [System.Drawing.Imaging.ImageFormat]::Png)
     Write-Output $outputPath
 }

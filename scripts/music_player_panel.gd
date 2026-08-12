@@ -20,6 +20,8 @@ const PLAY_MODES := ["sequential", "list", "single", "shuffle"]
 const PREVIOUS_LYRIC_POSITION := Vector2(292, 225)
 const CURRENT_LYRIC_POSITION := Vector2(282, 254)
 const NEXT_LYRIC_POSITION := Vector2(292, 298)
+const COVER_POSITION := Vector2(89, 117)
+const COVER_SIZE := Vector2(168, 166)
 
 var _font: Font
 var _monitor: PetMusicSessionMonitor
@@ -194,7 +196,7 @@ func _build_ui() -> void:
 
 	var cover_inset := Panel.new()
 	cover_inset.position = Vector2(87, 115)
-	cover_inset.size = Vector2(172, 136)
+	cover_inset.size = Vector2(172, 170)
 	cover_inset.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var inset_style := StyleBoxFlat.new()
 	inset_style.bg_color = Color("fff9f5")
@@ -205,8 +207,8 @@ func _build_ui() -> void:
 	_text_layer.add_child(cover_inset)
 
 	_cover = TextureRect.new()
-	_cover.position = Vector2(89, 117)
-	_cover.size = Vector2(168, 132)
+	_cover.position = COVER_POSITION
+	_cover.size = COVER_SIZE
 	_cover.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_cover.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	_cover.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
@@ -214,6 +216,7 @@ func _build_ui() -> void:
 	_cover.pivot_offset = _cover.size * 0.5
 	_cover.material = _make_cover_material(_cover.size, 12.0)
 	_text_layer.add_child(_cover)
+	_add_cover_foreground()
 
 	_title_label = _make_label("等待播放器", Vector2(297, 116), Vector2(280, 42), 27, Color("6f4955"))
 	_title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
@@ -226,6 +229,9 @@ func _build_ui() -> void:
 	_text_layer.add_child(_album_label)
 
 	_source_label = _make_label("等待播放器", Vector2(91, 68), Vector2(180, 28), 17, Color("a65f70"))
+	var source_font := SystemFont.new()
+	source_font.font_names = PackedStringArray(["Microsoft YaHei UI", "Segoe UI"])
+	_source_label.add_theme_font_override("font", source_font)
 	_text_layer.add_child(_source_label)
 	_status_label = _make_label("正在寻找音乐…", Vector2(595, 72), Vector2(165, 26), 15, Color("a77a82"))
 	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -289,6 +295,27 @@ void fragment() {
 	material.set_shader_parameter("rect_size", rect_size)
 	material.set_shader_parameter("corner_radius", radius)
 	return material
+
+
+func _add_cover_foreground() -> void:
+	# Rebuild the decoration above the album art so the cover visibly continues
+	# behind the roses and bow instead of stopping before them.
+	_add_cover_decoration("rose.png", Vector2(72, 261), Vector2(60, 47), 30)
+	_add_cover_decoration("rose.png", Vector2(212, 261), Vector2(60, 47), 30)
+	_add_cover_decoration("bow_large.png", Vector2(115, 241), Vector2(106, 82), 31)
+
+
+func _add_cover_decoration(texture_name: String, decoration_position: Vector2, decoration_size: Vector2, layer: int) -> void:
+	var decoration := TextureRect.new()
+	decoration.position = decoration_position
+	decoration.size = decoration_size
+	decoration.texture = load(UI_DIR + "/" + texture_name) as Texture2D
+	decoration.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	decoration.stretch_mode = TextureRect.STRETCH_SCALE
+	decoration.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	decoration.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	decoration.z_index = layer
+	_text_layer.add_child(decoration)
 
 
 func _make_atlas_button(source_region: Rect2, display_rect: Rect2, tooltip: String) -> TextureButton:

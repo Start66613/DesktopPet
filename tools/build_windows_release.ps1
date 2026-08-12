@@ -55,6 +55,7 @@ if (Test-Path -LiteralPath $buildDir) {
 New-Item -ItemType Directory -Force -Path $buildDir, $distDir | Out-Null
 
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_app_icon.ps1")
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_music_player_background.ps1")
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_music_session_bridge.ps1")
 & $GodotPath --headless --path $projectRoot --script (Join-Path $PSScriptRoot "build_pet_sprite_frames.gd")
 if ($LASTEXITCODE -ne 0) { throw "Pet SpriteFrames generation failed." }

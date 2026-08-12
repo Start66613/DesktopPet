@@ -424,3 +424,11 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 角色透明的根因是基础待机动画原先在运行时用 `DirAccess` 扫描 `assets/sprites/**/*.png`。Release 导出把 PNG 转成内部纹理资源后，原始 `.png` 不再能按开发目录方式枚举，因此角色动画库为空，但气泡仍能显示。新增 `tools/build_pet_sprite_frames.gd`，构建前把待机、移动、睡觉、娱乐、骑龙和人狗互动合并为 `assets/runtime/pet_sprite_frames.tres`；当前共 19 个动画、185 帧。`scripts/pet.gd` 发布运行时优先加载该静态资源，开发环境仍保留动态构建回退。
 - `project.godot` 的运行图标改为 `release/app_icon.png`；`tools/build_app_icon.ps1` 现在生成包含 `16/32/48/64/128/256` 六个 PNG 图层的 ICO。Godot 导出不再报告图标尺寸缺失，安装后 EXE 提取图标已确认为桌宠头像。
 - 最终 Release 透明窗口使用 Windows `PrintWindow(PW_RENDERFULLCONTENT)` 检查合成表面：窗口标题为 `DesktopPet`，角色主体采样像素 3137、彩色主体像素 1437，日志错误数 0。安装包隔离安装后的 EXE 再次检查为主体像素 3138、彩色像素 1454，安装目录无 `.env`、临时 EXE 或 `*.TMP`；静默卸载退出码 0 且安装目录已移除。
+
+## 2026-08-12 音乐封面前景遮挡修复
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260812-132748`。
+- `scripts/music_player_panel.gd` 将封面区域调整为 `168x166`，使封面继续延伸到相框底部装饰后方；新增独立的前景装饰层，使用 `bow_large.png` 和左右两枚 `rose.png` 覆盖封面底部，形成蝴蝶结与玫瑰压在唱片封面前面的真实层级。
+- `tools/build_music_player_background.ps1` 会清除原底图中烘焙的相框底部蝴蝶结与花簇，避免运行时前景装饰出现双层重影；`tools/build_windows_release.ps1` 在发布构建前自动重建播放器底图。
+- 播放器来源标签改用 `Microsoft YaHei UI` / `Segoe UI` 系统字体，避免原可爱字体把 `QQ音乐` 的拉丁字母 `Q` 显示成方框装饰字形。
+- 正式 Windows Release 已重新构建。安装器 SHA-256 为 `83d5e34c14d6fa4ea854df19fb79ebc10b135406de74f09df38d39fbef473fef`，便携包 SHA-256 为 `b36e049350982bf4a825fc7de70d039e8940c8fd3ea853ad660ae59e51ca2d4a`。
