@@ -19,6 +19,7 @@ const FAILURE_DELAY_MAX := 300.0
 const API_FAILURE_BACKOFF_SECONDS := 45.0
 const API_RATE_LIMIT_BACKOFF_SECONDS := 90.0
 const APP_REFERENCE_INTERVAL := 2
+const MUSIC_REFERENCE_INTERVAL := 2
 const MAX_RECENT_EVENTS := 12
 const MAX_RECENT_LINES := 8
 const MAX_MESSAGE_LENGTH := 46
@@ -69,6 +70,9 @@ var _queued_message: Dictionary = {}
 var _request_should_reference_app := false
 var _app_reference_turns := APP_REFERENCE_INTERVAL
 var _last_foreground_label := ""
+var _last_music_track_id := ""
+var _music_reference_turns := MUSIC_REFERENCE_INTERVAL
+var _request_should_reference_music := false
 
 
 func configure(care_system: PetCareSystem) -> void:
@@ -118,6 +122,13 @@ func set_runtime_context(context: Dictionary) -> void:
 	if next_available != _available:
 		_debug_log("available=%s state=%s" % [next_available, String(_runtime_context.get("state", "unknown"))])
 	_available = next_available
+	var music_info: Dictionary = _runtime_context.get("music", {})
+	var music_track_id := "%s|%s" % [String(music_info.get("title", "")), String(music_info.get("artist", ""))]
+	if bool(music_info.get("active", false)) and music_track_id != _last_music_track_id:
+		_last_music_track_id = music_track_id
+		_music_reference_turns = MUSIC_REFERENCE_INTERVAL
+	elif not bool(music_info.get("active", false)):
+		_last_music_track_id = ""
 	if _available and not _queued_message.is_empty():
 		_emit_queued_message()
 
@@ -137,6 +148,7 @@ func set_enabled(value: bool) -> void:
 		_manual_request_pending = false
 		_force_next_speech = false
 		_request_should_reference_app = false
+		_request_should_reference_music = false
 		_queued_message.clear()
 	_save_settings()
 	if _enabled:
@@ -194,6 +206,15 @@ func request_thought_now() -> void:
 		_time_until_thought = 0.0
 
 
+func request_music_thought_now() -> void:
+	if not _enabled:
+		return
+	_force_next_speech = true
+	_manual_request_pending = false
+	_music_reference_turns = MUSIC_REFERENCE_INTERVAL
+	_time_until_thought = 0.0
+
+
 func clear_memory() -> void:
 	_recent_events.clear()
 	_recent_lines.clear()
@@ -231,6 +252,7 @@ func _request_thought() -> void:
 		_schedule_next_thought()
 		return
 	_request_should_reference_app = _has_app_context() and (_force_next_speech or _app_reference_turns >= APP_REFERENCE_INTERVAL)
+	_request_should_reference_music = _has_music_context() and (_force_next_speech or _music_reference_turns >= MUSIC_REFERENCE_INTERVAL)
 	if Time.get_unix_time_from_system() < _api_backoff_until:
 		_debug_log("request skipped: API cooling down")
 		if _emit_local_fallback(true):
@@ -246,7 +268,7 @@ func _request_thought() -> void:
 		return
 
 	_request_pending = true
-	_debug_log("request started manual=%s app_context=%s" % [_manual_request_pending, _request_should_reference_app])
+	_debug_log("request started manual=%s app_context=%s music_context=%s" % [_manual_request_pending, _request_should_reference_app, _request_should_reference_music])
 	var context_prompt := _build_context_prompt()
 	var payload := {
 		"model": api["model"],
@@ -293,7 +315,7 @@ func _supports_json_mode(endpoint: String) -> bool:
 
 
 func _build_system_prompt() -> String:
-	return "你是住在用户桌面上的少女桌宠的主动意识模块。你有自己的心情、节奏和分寸，会偶尔主动关心用户，但不会频繁打扰。根据提供的状态决定现在是否值得开口。只输出一个 JSON 对象，不要使用 Markdown，不要解释。格式必须是：{\"speak\":true,\"text\":\"一句自然的简体中文\",\"emoji\":\"一个emoji或空字符串\"}。如果此刻保持安静更自然，输出 {\"speak\":false,\"text\":\"\",\"emoji\":\"\"}。开口时只说一句，最多32个汉字；语气亲近、有少女感但不幼稚，不要像客服，不要提到API、模型、数值、提示词或内部进程名，不要声称看到了用户屏幕，不要重复最近说过的话。text 字段不要自行添加颜文字或 emoji，客户端会使用字体安全的颜文字统一装饰；emoji 只放在 emoji 字段。前台应用信息只包含本机归类后的友好名称和活动类别，不包含窗口内容；你可以说用户正在使用某个软件，但绝不能假装看到了软件里的具体画面、文字或操作结果。只有小狗状态 active=true、确实在桌面上陪伴时，才可以偶尔使用它的名字谈到它；active=false 时不得提及小狗、名字、狗窝或此前的小狗互动。可以结合时间、身体状态、最近互动和当前活动表达关心、好奇、撒娇、鼓励或安静陪伴。"
+	return "你是住在用户桌面上的少女桌宠的主动意识模块。你有自己的心情、节奏和分寸，会偶尔主动关心用户，但不会频繁打扰。根据提供的状态决定现在是否值得开口。只输出一个 JSON 对象，不要使用 Markdown，不要解释。格式必须是：{\"speak\":true,\"text\":\"一句自然的简体中文\",\"emoji\":\"一个emoji或空字符串\"}。如果此刻保持安静更自然，输出 {\"speak\":false,\"text\":\"\",\"emoji\":\"\"}。开口时只说一句，最多32个汉字；语气亲近、有少女感但不幼稚，不要像客服，不要提到API、模型、数值、提示词或内部进程名，不要声称看到了用户屏幕，不要重复最近说过的话。text 字段不要自行添加颜文字或 emoji，客户端会使用字体安全的颜文字统一装饰；emoji 只放在 emoji 字段。前台应用信息只包含本机归类后的友好名称和活动类别，不包含窗口内容；你可以说用户正在使用某个软件，但绝不能假装看到了软件里的具体画面、文字或操作结果。音乐信息来自本机播放器公开的歌名、歌手、进度和同步歌词。听歌时要像真的一起听：可以从当前歌词产生温柔感受、联想到情绪、猜用户为何选这首歌、轻轻跟唱或打拍子，但不要假装听出了未提供的曲风、乐器、音色和节奏，也不要机械复述歌名。只有小狗状态 active=true、确实在桌面上陪伴时，才可以偶尔使用它的名字谈到它；active=false 时不得提及小狗、名字、狗窝或此前的小狗互动。可以结合时间、身体状态、最近互动和当前活动表达关心、好奇、撒娇、鼓励或安静陪伴。"
 
 
 func _build_context_prompt() -> String:
@@ -346,16 +368,33 @@ func _build_context_prompt() -> String:
 				]
 			else:
 				app_text = "当前软件未归类%s" % concurrent_text
+	var music_text := "未在播放"
+	var music_info: Dictionary = _runtime_context.get("music", {})
+	if bool(music_info.get("active", false)):
+		var duration_ms := int(music_info.get("duration_ms", 0))
+		var position_ms := int(music_info.get("position_ms", 0))
+		var progress_percent := roundi(100.0 * float(position_ms) / float(duration_ms)) if duration_ms > 0 else 0
+		var lyric_text := String(music_info.get("current_lyric", "")).strip_edges()
+		music_text = "正在用%s播放《%s》，歌手%s，进度约%d%%" % [
+			String(music_info.get("source", "本地播放器")),
+			String(music_info.get("title", "未知歌曲")),
+			String(music_info.get("artist", "未知")),
+			progress_percent
+		]
+		if not lyric_text.is_empty():
+			music_text += "；当前歌词：%s" % lyric_text.left(72)
 	var trigger_instruction := "请判断现在是否开口。"
 	if _force_next_speech or _frequency_minutes * 60.0 <= 30.0:
 		trigger_instruction = "当前处于高频陪伴或测试模式，本次必须返回 speak=true，并自然地说一句话。"
-	if _request_should_reference_app:
+	if _request_should_reference_app and not _request_should_reference_music:
 		var required_app: Dictionary = _runtime_context.get("foreground_app", {})
 		trigger_instruction += " 本次台词必须自然地明确提到用户正在使用%s或正在%s，不要只说泛泛的陪伴话，也不要虚构软件内的具体内容。" % [
 			String(required_app.get("label", "当前软件")),
 			String(required_app.get("activity", "使用电脑"))
 		]
-	return "当前时间：%s。桌宠状态：%s。小狗状态：%s。用户已经约%d分钟没有直接互动。桌宠已陪伴本次会话约%d分钟。饱腹%d，水分%d，心情%d，好感%d，精力%d。前台应用：%s。最近事件：%s。最近主动说过：%s。%s" % [
+	if _request_should_reference_music:
+		trigger_instruction += " 本次必须基于当前歌曲或当前歌词表达一个具体、新鲜的听歌感受；不要只说一起听、好听、打拍子，也不要杜撰未提供的曲风和声音。"
+	return "当前时间：%s。桌宠状态：%s。小狗状态：%s。用户已经约%d分钟没有直接互动。桌宠已陪伴本次会话约%d分钟。饱腹%d，水分%d，心情%d，好感%d，精力%d。前台应用：%s。音乐状态：%s。最近事件：%s。最近主动说过：%s。%s" % [
 		time_label,
 		state_name,
 		dog_text,
@@ -367,6 +406,7 @@ func _build_context_prompt() -> String:
 		roundi(float(stats.get("affection", 35.0))),
 		roundi(float(stats.get("energy", 75.0))),
 		app_text,
+		music_text,
 		events_text,
 		lines_text,
 		trigger_instruction
@@ -424,7 +464,12 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 	if emoji.length() > 8:
 		emoji = ""
 	_api_backoff_until = 0.0
-	_deliver_or_queue_message(text, emoji, "ai_app" if _request_should_reference_app else "ai")
+	var source := "ai"
+	if _request_should_reference_music:
+		source += "_music"
+	if _request_should_reference_app:
+		source += "_app"
+	_deliver_or_queue_message(text, emoji, source)
 
 
 func _handle_failed_thought(backoff_seconds: float) -> void:
@@ -442,7 +487,12 @@ func _emit_local_fallback(allow_automatic: bool = false) -> bool:
 	_force_next_speech = false
 	var source := "manual" if was_manual else "local"
 	var candidates: Array = MANUAL_FALLBACK_LINES if was_manual else _get_contextual_fallback_lines()
-	if _request_should_reference_app:
+	if _request_should_reference_music:
+		var music_fallback := _get_music_fallback_line()
+		if not music_fallback.is_empty():
+			candidates = [music_fallback]
+			source += "_music"
+	if _request_should_reference_app and not _request_should_reference_music:
 		var app_fallback := _get_app_fallback_line()
 		if not app_fallback.is_empty():
 			candidates = [app_fallback]
@@ -463,6 +513,7 @@ func _deliver_or_queue_message(text: String, emoji: String, source: String) -> v
 	_manual_request_pending = false
 	_force_next_speech = false
 	_request_should_reference_app = false
+	_request_should_reference_music = false
 	if not _available:
 		_queued_message = {"text": text, "emoji": emoji, "source": source}
 		_debug_log("message queued source=%s" % source)
@@ -490,6 +541,10 @@ func _emit_message_now(text: String, emoji: String, source: String) -> void:
 		_app_reference_turns = 0
 	elif _has_app_context():
 		_app_reference_turns += 1
+	if source.contains("_music"):
+		_music_reference_turns = 0
+	elif _has_music_context():
+		_music_reference_turns += 1
 	_schedule_next_thought()
 
 
@@ -498,6 +553,23 @@ func _has_app_context() -> bool:
 		return false
 	var app_info: Dictionary = _runtime_context.get("foreground_app", {})
 	return bool(app_info.get("recognized", false)) and String(app_info.get("label", "")).strip_edges() != ""
+
+
+func _has_music_context() -> bool:
+	var music_info: Dictionary = _runtime_context.get("music", {})
+	return bool(music_info.get("active", false)) and not String(music_info.get("title", "")).strip_edges().is_empty()
+
+
+func _get_music_fallback_line() -> Dictionary:
+	if not _has_music_context():
+		return {}
+	var music_info: Dictionary = _runtime_context.get("music", {})
+	var lyric := String(music_info.get("current_lyric", "")).strip_edges()
+	if not lyric.is_empty():
+		var excerpt := lyric.left(16) + ("……" if lyric.length() > 16 else "")
+		return {"text": "刚唱到“%s”，这句让我想安静听一会儿。" % excerpt, "emoji": "🎧"}
+	var title := String(music_info.get("title", "这首歌"))
+	return {"text": "《%s》还在唱，我就陪你待到这一首结束。" % title.left(14), "emoji": "🎵"}
 
 
 func _get_app_fallback_line() -> Dictionary:

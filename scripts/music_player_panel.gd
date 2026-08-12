@@ -6,6 +6,7 @@ const BASE_SIZE := Vector2(1678, 951)
 const PANEL_SIZE := Vector2i(820, 465)
 const UI_SCALE := 820.0 / 1678.0
 const ProgressControl := preload("res://scripts/music_progress_control.gd")
+const ImmersiveMusicView := preload("res://scripts/immersive_music_view.gd")
 const PREVIOUS_REGION := Rect2(423, 747, 135, 137)
 const PLAY_REGION := Rect2(592, 738, 195, 151)
 const PAUSE_REGION := Rect2(817, 746, 143, 139)
@@ -46,6 +47,8 @@ var _play_pause_button: TextureButton
 var _next_button: TextureButton
 var _mode_button: TextureButton
 var _mode_badge: Label
+var _fullscreen_button: Button
+var _immersive_view: PetImmersiveMusicView
 var _play_texture: AtlasTexture
 var _pause_texture: AtlasTexture
 var _shuffle_texture: AtlasTexture
@@ -66,6 +69,9 @@ var _requested_mode := ""
 var _mode_request_until_ms := 0
 var _play_state_initialized := false
 var _displayed_playing := false
+var _fullscreen_active := false
+var _windowed_position := Vector2i.ZERO
+var _fullscreen_screen := 0
 
 
 func _init() -> void:
@@ -100,14 +106,17 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
-	if not visible or not _monitor:
+	if not _monitor:
 		return
 	_session = _monitor.get_session()
-	_update_progress()
 	_update_lyrics_for_position(int(_session.get("position_ms", 0)))
+	if visible:
+		_update_progress()
 
 
 func open_at(screen_position: Vector2i) -> void:
+	if _fullscreen_active:
+		_exit_fullscreen()
 	position = screen_position
 	mode = Window.MODE_WINDOWED
 	if _monitor:
@@ -122,6 +131,8 @@ func open_at(screen_position: Vector2i) -> void:
 
 
 func hide_panel() -> void:
+	if _fullscreen_active:
+		_exit_fullscreen()
 	hide()
 
 
@@ -156,6 +167,29 @@ func _build_ui() -> void:
 	var close_button := _make_atlas_button(Rect2(1558, 40, 112, 116), Rect2(1558, 40, 112, 116), "关闭")
 	close_button.pressed.connect(hide_panel)
 	_root.add_child(close_button)
+
+	_fullscreen_button = Button.new()
+	_fullscreen_button.position = Vector2(1353, 48)
+	_fullscreen_button.size = Vector2(82, 82)
+	_fullscreen_button.text = "⛶"
+	_fullscreen_button.tooltip_text = "沉浸全屏"
+	_fullscreen_button.focus_mode = Control.FOCUS_NONE
+	_fullscreen_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	_fullscreen_button.add_theme_font_size_override("font_size", 39)
+	_fullscreen_button.add_theme_color_override("font_color", Color("9f6874"))
+	_fullscreen_button.add_theme_color_override("font_hover_color", Color("6f4955"))
+	var fullscreen_symbol_font := SystemFont.new()
+	fullscreen_symbol_font.font_names = PackedStringArray(["Segoe UI Symbol", "Segoe UI"])
+	_fullscreen_button.add_theme_font_override("font", fullscreen_symbol_font)
+	_fullscreen_button.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	_fullscreen_button.add_theme_stylebox_override("hover", StyleBoxEmpty.new())
+	_fullscreen_button.add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
+	_fullscreen_button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	_fullscreen_button.pivot_offset = _fullscreen_button.size * 0.5
+	_fullscreen_button.mouse_entered.connect(_animate_button.bind(_fullscreen_button, Vector2.ONE * 1.12, 0.12))
+	_fullscreen_button.mouse_exited.connect(_animate_button.bind(_fullscreen_button, Vector2.ONE, 0.14))
+	_fullscreen_button.pressed.connect(_enter_fullscreen)
+	_root.add_child(_fullscreen_button)
 
 	_previous_button = _make_atlas_button(PREVIOUS_REGION, PREVIOUS_RECT, "上一首")
 	_previous_button.pressed.connect(_on_previous_pressed)
@@ -260,6 +294,18 @@ func _build_ui() -> void:
 	_duration_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_text_layer.add_child(_elapsed_label)
 	_text_layer.add_child(_duration_label)
+
+	_immersive_view = ImmersiveMusicView.new()
+	_immersive_view.configure(_font)
+	_immersive_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_immersive_view.visible = false
+	_immersive_view.exit_requested.connect(_exit_fullscreen)
+	_immersive_view.previous_requested.connect(_on_previous_pressed)
+	_immersive_view.play_pause_requested.connect(_on_play_pause_pressed)
+	_immersive_view.next_requested.connect(_on_next_pressed)
+	_immersive_view.mode_requested.connect(_on_mode_pressed)
+	_immersive_view.seek_requested.connect(_on_seek_requested)
+	add_child(_immersive_view)
 
 
 func _make_atlas_texture(region: Rect2) -> AtlasTexture:
@@ -375,6 +421,7 @@ func _on_session_updated(info: Dictionary) -> void:
 		_set_controls_enabled(false)
 		_show_lyric_message("歌词会在播放后出现")
 		_update_progress()
+		_sync_immersive_session()
 		return
 
 	_title_label.text = String(_session.get("title", "未知歌曲"))
@@ -389,6 +436,7 @@ func _on_session_updated(info: Dictionary) -> void:
 	_update_mode_state()
 	_set_controls_enabled(true)
 	_update_progress()
+	_sync_immersive_session()
 
 
 func _on_track_changed(info: Dictionary) -> void:
@@ -411,6 +459,7 @@ func _on_lyrics_ready(track_id: String, lines: Array[Dictionary], source: String
 	_current_lyric_index = -1
 	_lyrics_source_label.text = source
 	_update_lyrics_for_position(int(_session.get("position_ms", 0)))
+	_sync_immersive_lyrics()
 
 
 func _on_lyrics_failed(track_id: String, message: String) -> void:
@@ -438,6 +487,8 @@ func _update_progress() -> void:
 		_progress.value = clampf(float(position_ms) / float(duration_ms), 0.0, 1.0) if duration_ms > 0 else 0.0
 	_elapsed_label.text = _format_time(position_ms)
 	_duration_label.text = _format_time(duration_ms)
+	if _immersive_view:
+		_immersive_view.set_progress(position_ms, duration_ms)
 
 
 func _update_lyrics_for_position(position_ms: int) -> void:
@@ -457,6 +508,7 @@ func _update_lyrics_for_position(position_ms: int) -> void:
 	_current_lyric.text = String(_lyrics[next_index].get("text", ""))
 	_next_lyric.text = String(_lyrics[next_index + 1].get("text", "")) if next_index + 1 < _lyrics.size() else ""
 	_animate_lyric_change(1.0 if previous_index < 0 or next_index > previous_index else -1.0)
+	_sync_immersive_lyrics()
 
 
 func _show_lyric_message(message: String) -> void:
@@ -465,6 +517,8 @@ func _show_lyric_message(message: String) -> void:
 	_current_lyric.text = message
 	_next_lyric.text = ""
 	_lyrics_source_label.text = ""
+	if _immersive_view:
+		_immersive_view.show_lyric_message(message)
 
 
 func _load_cover() -> void:
@@ -484,9 +538,13 @@ func _load_cover() -> void:
 		error = image.load_webp_from_buffer(bytes)
 	if error == OK and not image.is_empty():
 		_cover.texture = ImageTexture.create_from_image(image)
+		if _immersive_view:
+			_immersive_view.set_cover(_cover.texture)
 		_play_cover_reveal()
 	else:
 		_cover.texture = null
+		if _immersive_view:
+			_immersive_view.set_cover(null)
 
 
 func _play_cover_reveal() -> void:
@@ -566,6 +624,7 @@ func _on_mode_pressed() -> void:
 	_set_mode_visual(next_mode)
 	_status_label.text = _mode_display_name(next_mode)
 	_monitor.set_play_mode(next_mode)
+	_sync_immersive_session()
 
 
 func _on_seek_requested(ratio: float) -> void:
@@ -645,6 +704,7 @@ func _set_mode_visual(mode: String) -> void:
 	if not bool(_session.get("can_repeat", false)) and not bool(_session.get("can_shuffle", false)):
 		capability_note = "（需在播放器内切换）"
 	_mode_button.tooltip_text = "播放顺序：" + _mode_display_name(mode) + capability_note
+	_sync_immersive_session()
 
 
 func _mode_display_name(mode: String) -> String:
@@ -662,6 +722,103 @@ func _mode_display_name(mode: String) -> String:
 func _on_drag_handle_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		DisplayServer.window_start_drag(get_window_id())
+
+
+func _enter_fullscreen() -> void:
+	if _fullscreen_active:
+		return
+	_windowed_position = position
+	_fullscreen_active = true
+	_fullscreen_screen = DisplayServer.window_get_current_screen(get_window_id())
+	if _fullscreen_screen < 0:
+		_fullscreen_screen = 0
+	var screen_position := DisplayServer.screen_get_position(_fullscreen_screen)
+	var screen_size := DisplayServer.screen_get_size(_fullscreen_screen)
+	if _panel_tween and _panel_tween.is_valid():
+		_panel_tween.kill()
+	_root.visible = false
+	_text_layer.visible = false
+	_immersive_view.visible = true
+	transparent_bg = false
+	get_viewport().transparent_bg = false
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false, get_window_id())
+	mode = Window.MODE_WINDOWED
+	position = screen_position
+	size = screen_size
+	_sync_immersive_session()
+	_sync_immersive_lyrics()
+	if _cover and _cover.texture:
+		_immersive_view.set_cover(_cover.texture)
+	_immersive_view.show_companion_note("把音乐铺满整个房间吧，我陪你一起听。", "🎧")
+	grab_focus()
+
+
+func _exit_fullscreen() -> void:
+	if not _fullscreen_active:
+		return
+	_fullscreen_active = false
+	mode = Window.MODE_WINDOWED
+	size = PANEL_SIZE
+	position = _windowed_position
+	transparent_bg = true
+	get_viewport().transparent_bg = true
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
+	_immersive_view.visible = false
+	_root.visible = true
+	_text_layer.visible = true
+	_root.scale = Vector2.ONE * UI_SCALE
+	_root.position = Vector2.ZERO
+	_text_layer.scale = Vector2.ONE
+	_text_layer.position = Vector2.ZERO
+	grab_focus()
+
+
+func is_fullscreen_active() -> bool:
+	return _fullscreen_active
+
+
+func enter_fullscreen() -> void:
+	_enter_fullscreen()
+
+
+func show_listening_note(text: String, emoji: String = "🎵") -> void:
+	if _fullscreen_active and _immersive_view:
+		_immersive_view.show_companion_note(text, emoji)
+
+
+func get_music_context() -> Dictionary:
+	var current_text := ""
+	var previous_text := ""
+	var next_text := ""
+	if _current_lyric_index >= 0 and _current_lyric_index < _lyrics.size():
+		current_text = String(_lyrics[_current_lyric_index].get("text", ""))
+	if _current_lyric_index > 0 and _current_lyric_index - 1 < _lyrics.size():
+		previous_text = String(_lyrics[_current_lyric_index - 1].get("text", ""))
+	if _current_lyric_index >= 0 and _current_lyric_index + 1 < _lyrics.size():
+		next_text = String(_lyrics[_current_lyric_index + 1].get("text", ""))
+	return {
+		"active": bool(_session.get("found", false)) and String(_session.get("playback_status", "")) == "playing",
+		"title": String(_session.get("title", "")),
+		"artist": String(_session.get("artist", "")),
+		"album": String(_session.get("album", "")),
+		"source": String(_session.get("source_label", "")),
+		"position_ms": int(_session.get("position_ms", 0)),
+		"duration_ms": int(_session.get("duration_ms", 0)),
+		"previous_lyric": previous_text,
+		"current_lyric": current_text,
+		"next_lyric": next_text,
+		"fullscreen": _fullscreen_active
+	}
+
+
+func _sync_immersive_session() -> void:
+	if _immersive_view:
+		_immersive_view.set_session(_session, _display_mode)
+
+
+func _sync_immersive_lyrics() -> void:
+	if _immersive_view:
+		_immersive_view.set_lyrics(_lyrics, _current_lyric_index, _lyrics_source_label.text if _lyrics_source_label else "")
 
 
 func _animate_button(button: Control, target_scale: Vector2, duration: float) -> void:

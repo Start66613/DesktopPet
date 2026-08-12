@@ -2,6 +2,7 @@ extends Window
 class_name PetCompanionSettingsPanel
 
 signal dragon_easter_egg_requested
+signal screen_awareness_requested
 
 const UI_DIR := "res://assets/companion/runtime/ui"
 const BASE_SIZE := Vector2(1478, 1037)
@@ -182,12 +183,16 @@ func _build_awareness_controls() -> void:
 	_memory_status = _make_label("", Vector2(895, 586), Vector2(430, 44), 25, Color("8d6871"))
 	_text_layer.add_child(_memory_status)
 
-	var clear_button := _make_small_button("清空记忆", Vector2(895, 654), Vector2(215, 72))
+	var clear_button := _make_small_button("清空记忆", Vector2(895, 654), Vector2(135, 72))
 	clear_button.pressed.connect(_on_clear_memory_pressed)
 	_root.add_child(clear_button)
-	var refresh_button := _make_small_button("重新识别", Vector2(1130, 654), Vector2(215, 72))
+	var refresh_button := _make_small_button("重新识别", Vector2(1045, 654), Vector2(135, 72))
 	refresh_button.pressed.connect(_on_refresh_app_pressed)
 	_root.add_child(refresh_button)
+	var screen_button := _make_small_button("画面感知", Vector2(1195, 654), Vector2(150, 72))
+	screen_button.tooltip_text = "单独设置需要截图授权的屏幕画面感知"
+	screen_button.pressed.connect(_on_screen_awareness_pressed)
+	_root.add_child(screen_button)
 
 
 func _build_action_buttons() -> void:
@@ -278,6 +283,11 @@ func _on_think_now_pressed() -> void:
 	if _companion:
 		_companion.request_thought_now()
 	hide_panel()
+
+
+func _on_screen_awareness_pressed() -> void:
+	hide_panel()
+	screen_awareness_requested.emit()
 
 
 func _on_foreground_app_changed(info: Dictionary) -> void:

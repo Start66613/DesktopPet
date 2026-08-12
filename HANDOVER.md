@@ -432,3 +432,13 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `tools/build_music_player_background.ps1` 会清除原底图中烘焙的相框底部蝴蝶结与花簇，避免运行时前景装饰出现双层重影；`tools/build_windows_release.ps1` 在发布构建前自动重建播放器底图。
 - 播放器来源标签改用 `Microsoft YaHei UI` / `Segoe UI` 系统字体，避免原可爱字体把 `QQ音乐` 的拉丁字母 `Q` 显示成方框装饰字形。
 - 正式 Windows Release 已重新构建。安装器 SHA-256 为 `83d5e34c14d6fa4ea854df19fb79ebc10b135406de74f09df38d39fbef473fef`，便携包 SHA-256 为 `b36e049350982bf4a825fc7de70d039e8940c8fd3ea853ad660ae59e51ca2d4a`。
+
+## 2026-08-12 沉浸音乐、听歌陪伴与屏幕感知 1.0
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260812-144003`。
+- `scripts/music_player_panel.gd` 新增沉浸全屏切换按钮；`scripts/immersive_music_view.gd` 提供覆盖当前显示器的无边框大屏布局，包括大封面呼吸、五行同步歌词、歌词方向过渡、播放进度、上一首/播放暂停/下一首/播放顺序、`Esc`/`F11` 退出与桌宠听歌心声。退出后恢复原 `820x465` 透明花边窗口及原位置，避免透明空壳。
+- `scripts/proactive_companion.gd` 的主动意识上下文加入当前歌曲、歌手、来源、进度和当前歌词。切歌后约 5 秒、连续播放约 75 至 150 秒会低频触发一次具体听歌感受；API 失败时本地兜底也会引用当前歌词。听歌动画与音乐全屏不再阻断主动陪伴，全屏时台词进入播放器左下方心声区，普通桌面仍使用气泡。
+- `scripts/screen_awareness_service.gd` + `screen_awareness_panel.gd` 新增默认关闭的屏幕画面感知 1.0。入口位于“陪伴设置 -> 画面感知”，与只读进程名的“前台应用感知”明确分开。支持“立即看看”和可选每 10 分钟自动观察；截图仅在内存中缩放到最长边 1280、JPEG 低细节发送，既不写磁盘也不把画面正文写进陪伴记忆。自动观察只在所有功能窗关闭且桌宠空闲时计时。
+- 屏幕感知复用 AI 聊天接口和 Key，可单独填写视觉模型名；留空则使用聊天模型。文本模型不支持图片时会用桌宠口吻提示换视觉模型，不会假装看到了画面。屏幕分析提示词禁止抄录密码、密钥、聊天内容、账号和私人文件名，只返回场景概述、建议和一句桌宠台词。
+- 新增 `tools/companion_music_screen_qa.gd` 和 `tools/music_fullscreen_qa.gd`。Godot 4.7.1 脚本解析、音乐上下文/歌词兜底/隐私门逻辑、全屏窗口 `1920x1080` 与退出恢复均通过；普通播放器、屏幕授权窗、全屏播放器三种直达运行日志错误数为 0。
+- 正式包已重建：安装器 SHA-256 `dee88b47176abb53204f113e906058a9eead84192a8c359f3c9321ca5786fd68`，便携包 SHA-256 `32c53432d4c265e5c077283477f8a5ba16ad7f5ad105bcaaf858a5d5118821c7`。
