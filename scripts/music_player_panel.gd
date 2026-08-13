@@ -70,7 +70,9 @@ var _mode_request_until_ms := 0
 var _play_state_initialized := false
 var _displayed_playing := false
 var _fullscreen_active := false
+var _fullscreen_transitioning := false
 var _windowed_position := Vector2i.ZERO
+var _windowed_size := PANEL_SIZE
 var _fullscreen_screen := 0
 
 
@@ -115,7 +117,7 @@ func _process(_delta: float) -> void:
 
 
 func open_at(screen_position: Vector2i) -> void:
-	if _fullscreen_active:
+	if _fullscreen_active or _fullscreen_transitioning:
 		_exit_fullscreen()
 	position = screen_position
 	mode = Window.MODE_WINDOWED
@@ -131,7 +133,7 @@ func open_at(screen_position: Vector2i) -> void:
 
 
 func hide_panel() -> void:
-	if _fullscreen_active:
+	if _fullscreen_active or _fullscreen_transitioning:
 		_exit_fullscreen()
 	hide()
 
@@ -725,41 +727,82 @@ func _on_drag_handle_gui_input(event: InputEvent) -> void:
 
 
 func _enter_fullscreen() -> void:
-	if _fullscreen_active:
+	if _fullscreen_active or _fullscreen_transitioning:
 		return
+	_fullscreen_transitioning = true
 	_windowed_position = position
-	_fullscreen_active = true
+	_windowed_size = size
 	_fullscreen_screen = DisplayServer.window_get_current_screen(get_window_id())
 	if _fullscreen_screen < 0:
 		_fullscreen_screen = 0
-	var screen_position := DisplayServer.screen_get_position(_fullscreen_screen)
-	var screen_size := DisplayServer.screen_get_size(_fullscreen_screen)
 	if _panel_tween and _panel_tween.is_valid():
 		_panel_tween.kill()
-	_root.visible = false
-	_text_layer.visible = false
-	_immersive_view.visible = true
 	transparent_bg = false
 	get_viewport().transparent_bg = false
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false, get_window_id())
-	mode = Window.MODE_WINDOWED
-	position = screen_position
-	size = screen_size
+	unresizable = false
+	min_size = Vector2i(1, 1)
+	DisplayServer.window_set_current_screen(_fullscreen_screen, get_window_id())
+	mode = Window.MODE_FULLSCREEN
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if not _fullscreen_transitioning:
+		return
+
+	if not _window_fills_screen():
+		# Some Windows compositors reject fullscreen immediately after changing
+		# per-pixel transparency. A borderless screen-sized window is the fallback.
+		mode = Window.MODE_WINDOWED
+		var screen_position := DisplayServer.screen_get_position(_fullscreen_screen)
+		var screen_size := DisplayServer.screen_get_size(_fullscreen_screen)
+		DisplayServer.window_set_position(screen_position, get_window_id())
+		DisplayServer.window_set_size(screen_size, get_window_id())
+		await get_tree().process_frame
+		await get_tree().process_frame
+		if not _fullscreen_transitioning:
+			return
+
+	if not _window_fills_screen():
+		_restore_windowed_state()
+		_fullscreen_transitioning = false
+		return
+
+	_fullscreen_active = true
+	_root.visible = false
+	_text_layer.visible = false
+	_immersive_view.visible = true
+	_immersive_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_immersive_view.call_deferred("_layout")
 	_sync_immersive_session()
 	_sync_immersive_lyrics()
 	if _cover and _cover.texture:
 		_immersive_view.set_cover(_cover.texture)
 	_immersive_view.show_companion_note("把音乐铺满整个房间吧，我陪你一起听。", "🎧")
+	_fullscreen_transitioning = false
 	grab_focus()
 
 
 func _exit_fullscreen() -> void:
-	if not _fullscreen_active:
+	if not _fullscreen_active and not _fullscreen_transitioning:
 		return
 	_fullscreen_active = false
+	_fullscreen_transitioning = false
+	_restore_windowed_state()
+	grab_focus()
+
+
+func _window_fills_screen() -> bool:
+	var expected := DisplayServer.screen_get_size(_fullscreen_screen)
+	var actual := DisplayServer.window_get_size(get_window_id())
+	return actual.x >= expected.x - 2 and actual.y >= expected.y - 2
+
+
+func _restore_windowed_state() -> void:
 	mode = Window.MODE_WINDOWED
-	size = PANEL_SIZE
-	position = _windowed_position
+	unresizable = true
+	min_size = PANEL_SIZE
+	DisplayServer.window_set_size(_windowed_size if _windowed_size != Vector2i.ZERO else PANEL_SIZE, get_window_id())
+	DisplayServer.window_set_position(_windowed_position, get_window_id())
 	transparent_bg = true
 	get_viewport().transparent_bg = true
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
@@ -770,7 +813,6 @@ func _exit_fullscreen() -> void:
 	_root.position = Vector2.ZERO
 	_text_layer.scale = Vector2.ONE
 	_text_layer.position = Vector2.ZERO
-	grab_focus()
 
 
 func is_fullscreen_active() -> bool:

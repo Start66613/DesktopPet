@@ -91,7 +91,6 @@ const MusicLyricsService := preload("res://scripts/music_lyrics_service.gd")
 const MusicPlayerPanel := preload("res://scripts/music_player_panel.gd")
 const CompanionSettingsPanel := preload("res://scripts/companion_settings_panel.gd")
 const ScreenAwarenessService := preload("res://scripts/screen_awareness_service.gd")
-const ScreenAwarenessPanel := preload("res://scripts/screen_awareness_panel.gd")
 const BadmintonGamePanel := preload("res://scripts/badminton_game_panel.gd")
 const DogCompanion := preload("res://scripts/dog_companion.gd")
 const DogHomePanel := preload("res://scripts/dog_home_panel.gd")
@@ -166,7 +165,6 @@ var _music_lyrics_service: PetMusicLyricsService
 var _music_player_panel: PetMusicPlayerPanel
 var _companion_settings_panel: PetCompanionSettingsPanel
 var _screen_awareness_service: PetScreenAwarenessService
-var _screen_awareness_panel: PetScreenAwarenessPanel
 var _pending_screen_message: Dictionary = {}
 var _badminton_game: PetBadmintonGame
 var _dog_companion: PetDogCompanion
@@ -395,13 +393,6 @@ func _create_care_features() -> void:
 	_music_player_panel.configure(_cjk_font, _music_session_monitor, _music_lyrics_service)
 	add_child(_music_player_panel)
 
-	_companion_settings_panel = CompanionSettingsPanel.new()
-	_companion_settings_panel.name = "CompanionSettingsPanel"
-	_companion_settings_panel.configure(_cjk_font, _proactive_companion, _foreground_app_monitor)
-	_companion_settings_panel.dragon_easter_egg_requested.connect(_on_dragon_easter_egg_requested)
-	_companion_settings_panel.screen_awareness_requested.connect(_open_screen_awareness)
-	add_child(_companion_settings_panel)
-
 	_screen_awareness_service = ScreenAwarenessService.new()
 	_screen_awareness_service.name = "ScreenAwarenessService"
 	_screen_awareness_service.analysis_ready.connect(_on_screen_analysis_ready)
@@ -410,10 +401,11 @@ func _create_care_features() -> void:
 	add_child(_screen_awareness_service)
 	_sync_screen_monitoring()
 
-	_screen_awareness_panel = ScreenAwarenessPanel.new()
-	_screen_awareness_panel.name = "ScreenAwarenessPanel"
-	_screen_awareness_panel.configure(_cjk_font, _screen_awareness_service)
-	add_child(_screen_awareness_panel)
+	_companion_settings_panel = CompanionSettingsPanel.new()
+	_companion_settings_panel.name = "CompanionSettingsPanel"
+	_companion_settings_panel.configure(_cjk_font, _proactive_companion, _foreground_app_monitor, _screen_awareness_service)
+	_companion_settings_panel.dragon_easter_egg_requested.connect(_on_dragon_easter_egg_requested)
+	add_child(_companion_settings_panel)
 
 	var pet_screen := DisplayServer.window_get_current_screen()
 	if pet_screen < 0:
@@ -927,14 +919,13 @@ func _update_proactive_context() -> void:
 	var settings_open: bool = _companion_settings_panel != null and _companion_settings_panel.visible
 	var music_open: bool = _music_player_panel != null and _music_player_panel.visible
 	var music_fullscreen: bool = music_open and _music_player_panel.is_fullscreen_active()
-	var screen_awareness_open: bool = _screen_awareness_panel != null and _screen_awareness_panel.visible
 	var dog_home_open: bool = _dog_home_panel != null and _dog_home_panel.visible
 	var badminton_open: bool = _badminton_game != null and _badminton_game.visible
 	if _screen_awareness_service:
-		_screen_awareness_service.set_auto_available(not menu_open and not care_open and not chat_open and not settings_open and not music_open and not screen_awareness_open and not dog_home_open and not badminton_open and not _dragging)
+		_screen_awareness_service.set_auto_available(not menu_open and not care_open and not chat_open and not settings_open and not music_open and not dog_home_open and not badminton_open and not _dragging)
 	var listening_state: bool = state == State.ACTIVITY and _active_activity == MUSIC_ANIMATION and _music_session_monitor != null and _music_session_monitor.is_playing()
 	var quiet_state: bool = state == State.IDLE or state == State.WALK or listening_state
-	var available: bool = quiet_state and not _dragging and (_bubble_time_left <= 0.0 or music_fullscreen) and not menu_open and not care_open and not chat_open and not settings_open and (not music_open or music_fullscreen) and not screen_awareness_open and not dog_home_open and not badminton_open
+	var available: bool = quiet_state and not _dragging and (_bubble_time_left <= 0.0 or music_fullscreen) and not menu_open and not care_open and not chat_open and not settings_open and (not music_open or music_fullscreen) and not dog_home_open and not badminton_open
 	var foreground_info := {}
 	if _foreground_app_monitor and _foreground_app_monitor.is_enabled():
 		foreground_info = _foreground_app_monitor.get_current_info()
@@ -1076,7 +1067,7 @@ func _open_care_panel() -> void:
 	_care_panel.open_at(Vector2i(panel_x, panel_y), portrait)
 
 
-func _open_companion_settings() -> void:
+func _open_companion_settings(page := "companion") -> void:
 	if not _companion_settings_panel:
 		return
 	if _proactive_companion:
@@ -1103,7 +1094,7 @@ func _open_companion_settings() -> void:
 		panel_x = pet_position.x - panel_size.x - 12
 	panel_x = clampi(panel_x, usable.position.x, usable.end.x - panel_size.x)
 	var panel_y := clampi(pet_position.y - 80, usable.position.y, usable.end.y - panel_size.y)
-	_companion_settings_panel.open_at(Vector2i(panel_x, panel_y))
+	_companion_settings_panel.open_at(Vector2i(panel_x, panel_y), page)
 
 
 func _open_music_player() -> void:
@@ -1144,35 +1135,7 @@ func _debug_open_music_fullscreen() -> void:
 
 
 func _open_screen_awareness() -> void:
-	if not _screen_awareness_panel:
-		return
-	if _proactive_companion:
-		_proactive_companion.mark_user_activity()
-	if _context_menu and _context_menu.visible:
-		_context_menu.hide()
-	if _care_panel and _care_panel.visible:
-		_care_panel.hide_panel()
-	if _ai_chat_panel and _ai_chat_panel.visible:
-		_ai_chat_panel.hide_panel()
-	if _companion_settings_panel and _companion_settings_panel.visible:
-		_companion_settings_panel.hide_panel()
-	if _dog_home_panel and _dog_home_panel.visible:
-		_dog_home_panel.hide_panel()
-	if _music_player_panel and _music_player_panel.visible:
-		_music_player_panel.hide_panel()
-	var screen := DisplayServer.window_get_current_screen()
-	if screen < 0:
-		screen = 0
-	var usable := DisplayServer.screen_get_usable_rect(screen)
-	var pet_position := DisplayServer.window_get_position()
-	var pet_size := DisplayServer.window_get_size()
-	var panel_size: Vector2i = _screen_awareness_panel.size
-	var panel_x := pet_position.x + pet_size.x + 12
-	if panel_x + panel_size.x > usable.end.x:
-		panel_x = pet_position.x - panel_size.x - 12
-	panel_x = clampi(panel_x, usable.position.x, usable.end.x - panel_size.x)
-	var panel_y := clampi(pet_position.y - 80, usable.position.y, usable.end.y - panel_size.y)
-	_screen_awareness_panel.open_at(Vector2i(panel_x, panel_y))
+	_open_companion_settings("awareness")
 
 
 func _on_screen_analysis_ready(result: Dictionary) -> void:

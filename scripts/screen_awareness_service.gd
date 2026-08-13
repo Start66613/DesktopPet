@@ -8,6 +8,7 @@ signal settings_changed
 signal status_changed
 
 const API_CONFIG_PATH := "user://ai_chat.cfg"
+const VISION_API_CONFIG_PATH := "user://screen_vision.cfg"
 const SETTINGS_PATH := "user://companion_settings.cfg"
 const MAX_IMAGE_EDGE := 1120
 const JPEG_QUALITY := 0.68
@@ -35,6 +36,11 @@ var _mode := "auto"
 var _daily_limit := DEFAULT_DAILY_LIMIT
 var _blacklist_text := DEFAULT_BLACKLIST
 var _model_override := ""
+var _use_separate_vision_api := false
+var _vision_endpoint := ""
+var _vision_model := ""
+var _vision_api_key := ""
+var _remember_vision_key := true
 var _request_pending := false
 var _capture_pending := false
 var _auto_available := true
@@ -57,6 +63,7 @@ var _last_scene_signature := ""
 
 func _ready() -> void:
 	_load_settings()
+	_load_vision_api_settings()
 	if not _enabled:
 		_last_status = "等待授权"
 	elif _paused:
@@ -201,6 +208,51 @@ func set_model_override(value: String) -> void:
 	settings_changed.emit()
 
 
+func uses_separate_vision_api() -> bool:
+	return _use_separate_vision_api
+
+
+func get_vision_endpoint() -> String:
+	return _vision_endpoint
+
+
+func get_vision_model() -> String:
+	return _vision_model
+
+
+func get_vision_api_key() -> String:
+	return _vision_api_key
+
+
+func remembers_vision_key() -> bool:
+	return _remember_vision_key
+
+
+func set_vision_api_settings(enabled: bool, endpoint: String, model: String, api_key: String, remember_key: bool) -> void:
+	_use_separate_vision_api = enabled
+	_vision_endpoint = endpoint.strip_edges().left(320)
+	_vision_model = model.strip_edges().left(128)
+	_vision_api_key = api_key.strip_edges().left(512)
+	_remember_vision_key = remember_key
+	_save_vision_api_settings()
+	settings_changed.emit()
+
+
+func get_vision_api_summary() -> String:
+	if _use_separate_vision_api:
+		if _vision_endpoint.is_empty() or _vision_model.is_empty() or _vision_api_key.is_empty():
+			return "独立视觉接口尚未填写完整"
+		if _api_is_text_only({"endpoint": _vision_endpoint, "model": _vision_model}):
+			return "当前仍是 DeepSeek 文本模型，不能识别图片"
+		return "画面将交给 %s，聊天模型不受影响" % _vision_model
+	var chat_api := _load_chat_api_settings()
+	if chat_api.is_empty():
+		return "尚未配置可用的聊天或视觉接口"
+	if _api_is_text_only(chat_api):
+		return "聊天使用 DeepSeek；请开启下方独立视觉接口"
+	return "沿用聊天接口中的 %s" % String(chat_api.get("model", "视觉模型"))
+
+
 func is_busy() -> bool:
 	return _request_pending or _capture_pending
 
@@ -273,7 +325,11 @@ func request_analysis(reason := "manual", force := true) -> void:
 		return
 	var api := _load_api_settings()
 	if api.is_empty():
-		analysis_failed.emit("还没有配置 AI API，我暂时看不懂画面呀。")
+		analysis_failed.emit("视觉接口还没有配好，我暂时看不懂画面呀。")
+		return
+	if _api_is_text_only(api):
+		_set_status("DeepSeek 仅用于聊天，尚未配置视觉模型")
+		analysis_failed.emit("DeepSeek 现在负责陪你聊天，还不会看图片哦，请在“隐私与接口”里配置视觉模型。")
 		return
 	_capture_pending = true
 	_set_status("正在取 3 个短暂关键帧……")
@@ -289,6 +345,13 @@ func request_analysis(reason := "manual", force := true) -> void:
 
 
 func _evaluate_local_screen_change() -> void:
+	var api := _load_api_settings()
+	if api.is_empty():
+		_set_status("视觉接口尚未配置，未读取屏幕")
+		return
+	if _api_is_text_only(api):
+		_set_status("DeepSeek 仅用于聊天，未读取屏幕")
+		return
 	if _is_sensitive_foreground():
 		_change_pending = false
 		_set_status("已跳过隐私名单中的应用")
@@ -544,6 +607,14 @@ func _is_sensitive_foreground() -> bool:
 
 
 func _load_api_settings() -> Dictionary:
+	if _use_separate_vision_api:
+		if _vision_endpoint.is_empty() or _vision_model.is_empty() or _vision_api_key.is_empty():
+			return {}
+		return {"endpoint": _vision_endpoint, "model": _vision_model, "key": _vision_api_key, "source": "vision"}
+	return _load_chat_api_settings()
+
+
+func _load_chat_api_settings() -> Dictionary:
 	if not FileAccess.file_exists(API_CONFIG_PATH):
 		return {}
 	var config := ConfigFile.new()
@@ -555,7 +626,36 @@ func _load_api_settings() -> Dictionary:
 	var model := _model_override if not _model_override.is_empty() else chat_model
 	if endpoint.is_empty() or model.is_empty() or key.is_empty():
 		return {}
-	return {"endpoint": endpoint, "model": model, "key": key}
+	return {"endpoint": endpoint, "model": model, "key": key, "source": "chat"}
+
+
+func _api_is_text_only(api: Dictionary) -> bool:
+	var endpoint := String(api.get("endpoint", "")).to_lower()
+	var model := String(api.get("model", "")).to_lower()
+	return endpoint.contains("api.deepseek.com") or model.begins_with("deepseek")
+
+
+func _load_vision_api_settings() -> void:
+	if not FileAccess.file_exists(VISION_API_CONFIG_PATH):
+		return
+	var config := ConfigFile.new()
+	if config.load(VISION_API_CONFIG_PATH) != OK:
+		return
+	_use_separate_vision_api = bool(config.get_value("vision_api", "enabled", false))
+	_vision_endpoint = String(config.get_value("vision_api", "endpoint", "")).strip_edges()
+	_vision_model = String(config.get_value("vision_api", "model", "")).strip_edges()
+	_remember_vision_key = bool(config.get_value("vision_api", "remember_key", true))
+	_vision_api_key = String(config.get_value("vision_api", "key", "")).strip_edges()
+
+
+func _save_vision_api_settings() -> void:
+	var config := ConfigFile.new()
+	config.set_value("vision_api", "enabled", _use_separate_vision_api)
+	config.set_value("vision_api", "endpoint", _vision_endpoint)
+	config.set_value("vision_api", "model", _vision_model)
+	config.set_value("vision_api", "remember_key", _remember_vision_key)
+	config.set_value("vision_api", "key", _vision_api_key if _remember_vision_key else "")
+	config.save(VISION_API_CONFIG_PATH)
 
 
 func _friendly_api_error(response_code: int, parsed) -> String:

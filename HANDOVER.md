@@ -459,3 +459,13 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 修复前备份：`D:\game creat\DesktopPet_backup_20260812-210352`。
 - 初版把 `1478x1037` 设计坐标、`680x477` 原生窗口和根节点缩放混用，导致子窗口内容裁切、开关文字重叠。`screen_awareness_panel.gd` 已改为统一 `680x477` 真实像素布局：背景仅由 TextureRect 缩放，所有文字、按钮和点击区域使用相同坐标系；授权/智能观察与暂停/陪伴模式分成两行，视觉模型独占一行。
 - 用 Windows `PrintWindow` 直接抓取真正的 `680x477` 子窗口验证，标题、标签页、三组开关、模式、模型输入、状态和底部按钮均完整，无重叠或越界。标题去掉可爱字体显示异常的拉丁数字；服务启动时会根据授权、自动观察和暂停状态显示正确文案。
+
+## 2026-08-12 陪伴设置整合、DeepSeek 视觉分流与音乐全屏修复
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260812-211303`。
+- `scripts/companion_settings_panel.gd` 重做为统一 `740x520` 原生像素窗口，包含“陪伴 / 画面感知 / 隐私与接口”三个页签。主动陪伴频率、夜间安静、前台应用感知、陪伴记忆、重新识别五连击骑龙彩蛋、画面授权、智能观察、临时暂停、模式、每日额度、敏感应用名单、画面短期记忆和视觉接口均在同一窗口内。页签创建在页面之后且 `z_index=50`，不会再被透明页面挡住。
+- `scripts/pet.gd` 调整初始化顺序：先创建 `PetScreenAwarenessService`，再注入 `PetCompanionSettingsPanel`；不再实例化独立画面感知窗口。`--show-screen-awareness` 保留为调试兼容参数，但现在直接打开“陪伴设置 -> 画面感知”。旧 `scripts/screen_awareness_panel.gd` 已删除。
+- `scripts/screen_awareness_service.gd` 新增独立视觉接口配置 `user://screen_vision.cfg`，可单独保存 Endpoint、视觉模型、API Key 和是否记住 Key。聊天继续使用 `user://ai_chat.cfg` 中的 DeepSeek；画面分析使用支持图片输入的 OpenAI 兼容视觉模型。若沿用配置被识别为 DeepSeek endpoint/model，手动分析会在截图前用桌宠口吻提示，自动观察也不会进行本地屏幕采样、截图、上传或消耗每日额度。
+- `scripts/music_player_panel.gd` 的沉浸模式改为原生 `Window.MODE_FULLSCREEN`。进入前保存窗口位置与尺寸，先关闭透明合成并进入当前显示器全屏；两帧后检查实际尺寸，必要时回退到无边框屏幕尺寸，再失败则完整恢复普通播放器。退出后恢复 `820x465`、原位置、透明背景、最小尺寸和不可缩放状态，不会再出现“只隐藏全屏按钮但窗口没变”的半切换状态。
+- 新增 `tools/companion_settings_integration_qa.gd`、`tools/companion_settings_visual_qa.gd` 与 `tools/screen_deepseek_guard_qa.gd`；更新 `tools/music_fullscreen_qa.gd`。验证结果：三个页签可切换且按钮在页面上层；DeepSeek 路径 `captured=false local_sample=false uploaded=false usage=0`；屏幕感知 2.0 原 QA 通过；播放器实测进入 `1920x1080`，沉浸 UI 正常渲染，退出恢复 `820x465 @ 40,40`。视觉记录为 `logs/companion_settings_integrated_qa.png` 和 `logs/music_fullscreen_fixed_qa.png`。
+- 正式 Release 已重建：`dist/DesktopPet-0.1.0-Setup.exe` SHA-256 `3064e2ca875489b8346b171c643ba21778b8eb7c8f55a8c50736224bfde32918`；`dist/DesktopPet-0.1.0-Portable.zip` SHA-256 `7bce30f0f91e25423a6a66a0a8bb1bb965d96e3c7a6303eb7af29e8c76426796`。便携包共 9 个发布文件，不包含 `.env`、`ai_chat.cfg`、`screen_vision.cfg` 或 `companion_settings.cfg`。
