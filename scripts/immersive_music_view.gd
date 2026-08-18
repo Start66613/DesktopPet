@@ -233,7 +233,7 @@ func _build_ui() -> void:
 
 
 func _layout() -> void:
-	if not is_instance_valid(_cover_frame):
+	if not is_inside_tree() or not is_instance_valid(_cover_frame):
 		return
 	var viewport := size
 	var cover_side := clampf(minf(viewport.y * 0.46, viewport.x * 0.31), 280.0, 520.0)

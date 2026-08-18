@@ -469,3 +469,22 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `scripts/music_player_panel.gd` 的沉浸模式改为原生 `Window.MODE_FULLSCREEN`。进入前保存窗口位置与尺寸，先关闭透明合成并进入当前显示器全屏；两帧后检查实际尺寸，必要时回退到无边框屏幕尺寸，再失败则完整恢复普通播放器。退出后恢复 `820x465`、原位置、透明背景、最小尺寸和不可缩放状态，不会再出现“只隐藏全屏按钮但窗口没变”的半切换状态。
 - 新增 `tools/companion_settings_integration_qa.gd`、`tools/companion_settings_visual_qa.gd` 与 `tools/screen_deepseek_guard_qa.gd`；更新 `tools/music_fullscreen_qa.gd`。验证结果：三个页签可切换且按钮在页面上层；DeepSeek 路径 `captured=false local_sample=false uploaded=false usage=0`；屏幕感知 2.0 原 QA 通过；播放器实测进入 `1920x1080`，沉浸 UI 正常渲染，退出恢复 `820x465 @ 40,40`。视觉记录为 `logs/companion_settings_integrated_qa.png` 和 `logs/music_fullscreen_fixed_qa.png`。
 - 正式 Release 已重建：`dist/DesktopPet-0.1.0-Setup.exe` SHA-256 `3064e2ca875489b8346b171c643ba21778b8eb7c8f55a8c50736224bfde32918`；`dist/DesktopPet-0.1.0-Portable.zip` SHA-256 `7bce30f0f91e25423a6a66a0a8bb1bb965d96e3c7a6303eb7af29e8c76426796`。便携包共 9 个发布文件，不包含 `.env`、`ai_chat.cfg`、`screen_vision.cfg` 或 `companion_settings.cfg`。
+
+## 2026-08-13 音乐全屏真实多窗口修复
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260813-082406`（1848 个文件，130328108 bytes）。
+- 用户实机仍出现普通播放器保持 `820x465`、全屏按钮消失但没有沉浸界面的半切换状态。根因是此前直接把透明、固定大小的原生音乐子窗口切换为非透明全屏；独立播放器 QA 可以通过，但在桌宠主窗口与多个原生子窗口并存时，Windows/Godot 会拒绝部分窗口属性切换。
+- `scripts/music_player_panel.gd` 现在创建专用 `ImmersiveMusicWindow`：从创建起就是非透明、可缩放、无边框的原生窗口，沉浸音乐 UI 作为它的唯一内容。普通花边播放器始终保持透明 `820x465`，不再修改尺寸、透明属性、根节点可见性或全屏按钮状态。只有专用窗口实际达到当前屏幕尺寸后才设置 `_fullscreen_active=true`；失败时只关闭专用窗口，普通播放器和全屏按钮原样保留。
+- 退出沉浸模式时关闭专用窗口并聚焦普通播放器；普通窗口不需要恢复操作，因此不会再留下透明空壳或丢失按钮。`tools/music_fullscreen_qa.gd` 增加断言：专用窗口 `1920x1080`、普通播放器仍为 `820x465 @ 40,40`、全屏按钮始终可见、退出后专用窗口隐藏。
+- Godot 4.7.1 独立 QA 输出 `MUSIC_FULLSCREEN_QA_OK immersive_window_id=2 size=1920x1080 player_untouched=true button_visible=true`。完整桌宠主场景 `--show-music-fullscreen` 通过 Win32 枚举实测同进程同时存在：桌宠 `320x320`、普通音乐中心 `820x465`、沉浸音乐窗口覆盖当前 `1920x1080` 显示器。
+- 正式 Release 已重新构建：安装器 SHA-256 `c939cf538f6a8fffa80e6716f269e07c513f42d9e4adce01e6170ed74d54effb`，便携包 SHA-256 `6202044d9162d8a7e177947499512f4e6f0636e6b7d363d4da783a3d60e9dd31`。便携包共 9 个文件，敏感配置命中数 0。
+
+## 2026-08-13 音乐全屏空白与窗口遮挡修复
+
+- 沿用本轮修改前备份：`D:\game creat\DesktopPet_backup_20260813-082406`。
+- 用户实机截图确认上一版虽然创建了全屏深色窗口，但沉浸内容没有铺满，普通播放器与桌宠仍显示在上方。根因有两部分：沉浸视图在挂入原生窗口前解析了错误尺寸；专用窗口作为普通播放器的原生子窗口时又继承了其可见性和窗口所有者关系。
+- `scripts/music_player_panel.gd` 现在等主场景完成子节点初始化后，再把专用 `ImmersiveMusicWindow` 直接创建为场景根节点下的独立原生窗口。视图加入窗口后按实际屏幕尺寸显式布局，窗口尺寸变化也会同步重排；进入沉浸模式时临时取消桌宠主窗口置顶，专用窗口用无边框、置顶、物理屏幕尺寸覆盖当前显示器，普通播放器保持在下层，退出后恢复桌宠置顶与普通播放器焦点。
+- 沉浸模式不再依赖透明播放器本身切换尺寸或透明属性，也不再把专用窗口从播放器子节点中途 `reparent`。这避开了 Godot 4.7.1 在透明主窗、多原生窗口和 Windows 全屏模式组合下出现的空白表面与窗口所有者连带隐藏。
+- `scripts/music_player_panel.gd` 在沉浸模式下仍持续刷新媒体进度和歌词；`scripts/immersive_music_view.gd` 的布局增加场景树状态保护。`tools/music_fullscreen_qa.gd` 现在验证沉浸视图尺寸、非单色像素内容、置顶状态、普通窗口尺寸不变及退出恢复。
+- 独立 QA 输出：`MUSIC_FULLSCREEN_QA_OK immersive_window_id=2 size=1920x1080 player_covered=true content_visible=true button_visible=true`，退出恢复 `820x465 @ 40,40`。完整桌宠主场景通过真实桌面合成截图 `logs/music_fullscreen_main_scene.png` 验证：沉浸 UI 覆盖 `1920x1080` 全屏，任务栏、桌宠和普通音乐窗口均未遮挡画面，右上角退出按钮可见。
+- 正式 Release 再次用 `--show-music-fullscreen` 直达启动并通过桌面合成截图 `logs/music_fullscreen_release.png` 验证。新安装器 SHA-256 `30c6cfa941ca5aa871085593f5b93b46ac6be9046666131d5069aa14a53f1c32`；便携包 SHA-256 `517744ad0222f458daed0c2c36b23c4e84038256a98df4999e777e8925390167`。便携 ZIP 共 9 个文件，`.env`、AI/画面/陪伴配置和临时文件命中数 0。
