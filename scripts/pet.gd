@@ -497,7 +497,7 @@ func _on_music_track_changed(info: Dictionary) -> void:
 	if track_id.is_empty() or title.is_empty() or track_id == _last_music_track_id:
 		return
 	_last_music_track_id = track_id
-	_music_reflection_time_left = _rng.randf_range(75.0, 120.0)
+	_music_reflection_time_left = _rng.randf_range(35.0, 55.0)
 	if String(info.get("playback_status", "")) != "playing" or state == State.SLEEP:
 		return
 	_last_music_spoken_track_id = track_id
@@ -549,15 +549,39 @@ func _request_music_thought_after_lyrics(track_id: String) -> void:
 	_proactive_companion.request_music_thought_now()
 
 
+func _show_music_companion_beat() -> void:
+	if state == State.SLEEP or not _music_player_panel:
+		return
+	var context := _music_player_panel.get_music_context()
+	if not bool(context.get("active", false)):
+		return
+	var title := String(context.get("title", "")).strip_edges()
+	var lyric := String(context.get("current_lyric", "")).replace("\n", " ").strip_edges()
+	var message := "我还在陪你听，悄悄跟着节奏晃一晃 ♪"
+	var emoji := "🎧"
+	if not lyric.is_empty():
+		message = "刚才这句我听见啦：“%s” (*^_^*)" % lyric.left(24)
+		emoji = "🎵"
+	elif not title.is_empty():
+		var short_title := title.left(16) + ("…" if title.length() > 16 else "")
+		var lines: Array[String] = [
+			"《%s》听到这里，心情也跟着软乎乎的。" % short_title,
+			"还在听《%s》呀，我一直陪着你呢 (^_^)" % short_title,
+			"这段节奏真好，我都忍不住轻轻打拍子啦。"
+		]
+		message = lines[_rng.randi_range(0, lines.size() - 1)]
+	_on_proactive_message(message, emoji)
+
+
 func _update_music_runtime(delta: float) -> void:
 	if not _music_session_monitor:
 		return
 	var playing := _music_session_monitor.is_playing()
 	if playing and _music_reflection_time_left > 0.0:
 		_music_reflection_time_left -= delta
-		if _music_reflection_time_left <= 0.0 and _proactive_companion:
-			_music_reflection_time_left = _rng.randf_range(90.0, 150.0)
-			_proactive_companion.request_music_thought_now()
+		if _music_reflection_time_left <= 0.0:
+			_music_reflection_time_left = _rng.randf_range(45.0, 75.0)
+			_show_music_companion_beat()
 	if _music_activity_live and not playing:
 		_music_activity_live = false
 		if _active_activity == MUSIC_ANIMATION:

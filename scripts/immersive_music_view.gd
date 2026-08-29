@@ -17,16 +17,18 @@ const PAUSE_REGION := Rect2(817, 746, 143, 139)
 const NEXT_REGION := Rect2(999, 748, 139, 137)
 const SHUFFLE_REGION := Rect2(1170, 774, 88, 88)
 const REPEAT_REGION := Rect2(1292, 773, 91, 89)
-const PREVIOUS_RECT := Rect2(555, 746, 135, 137)
-const PLAY_PAUSE_RECT := Rect2(742, 738, 195, 151)
-const NEXT_RECT := Rect2(988, 746, 139, 137)
-const MODE_RECT := Rect2(1230, 773, 91, 89)
+const PREVIOUS_RECT := Rect2(650, 783, 86, 86)
+const PLAY_PAUSE_RECT := Rect2(780, 774, 112, 96)
+const NEXT_RECT := Rect2(936, 783, 86, 86)
+const MODE_RECT := Rect2(1080, 793, 68, 68)
 const MINIMIZE_RECT := Rect2(1452, 42, 112, 112)
 const EXIT_RECT := Rect2(1558, 40, 112, 116)
 
 var _font: Font
 var _background: ColorRect
 var _skin: TextureRect
+var _content_wash: Panel
+var _column_divider: ColorRect
 var _cover_frame: Panel
 var _cover: TextureRect
 var _cover_decorations: Array[TextureRect] = []
@@ -46,8 +48,11 @@ var _mode_button: TextureButton
 var _mode_badge: Label
 var _minimize_button: TextureButton
 var _exit_button: TextureButton
+var _companion_panel: Panel
+var _companion_title: Label
 var _companion_note: Label
 var _companion_emoji: Label
+var _companion_sprite: AnimatedSprite2D
 var _play_texture: AtlasTexture
 var _pause_texture: AtlasTexture
 var _shuffle_texture: AtlasTexture
@@ -56,6 +61,9 @@ var _note_tween: Tween
 var _lyric_tween: Tween
 var _cover_tween: Tween
 var _last_lyric_index := -1
+var _lyric_reaction_counter := 0
+var _last_track_id := ""
+var _last_playing := false
 var _session: Dictionary = {"found": false}
 
 
@@ -88,8 +96,11 @@ func set_cover(texture: Texture2D) -> void:
 
 
 func set_session(info: Dictionary, mode_name: String) -> void:
+	var previous_track := _last_track_id
+	var was_playing := _last_playing
 	_session = info.duplicate(true)
 	var found := bool(info.get("found", false))
+	var track_id := String(info.get("track_id", ""))
 	_title_label.text = String(info.get("title", "等待播放器")) if found else "等待播放器"
 	_artist_label.text = String(info.get("artist", "打开 QQ音乐 或 网易云音乐")) if found else "打开 QQ音乐 或 网易云音乐"
 	_album_label.text = String(info.get("album", "")) if found else "检测到播放后会自动同步"
@@ -97,7 +108,12 @@ func set_session(info: Dictionary, mode_name: String) -> void:
 		String(info.get("source_label", "本地播放器")) if found else "音乐中心",
 		"正在播放" if String(info.get("playback_status", "")) == "playing" else ("已暂停" if found else "等待连接")
 	]
+	_companion_title.text = "陪你听歌 · %s" % ("正在播放" if String(info.get("playback_status", "")) == "playing" else ("暂停中" if found else "等待音乐"))
+	if not found and _companion_note.text.strip_edges().is_empty():
+		_companion_note.text = "放一首歌吧，我会认真陪你听。"
 	var playing := String(info.get("playback_status", "")) == "playing"
+	_last_track_id = track_id
+	_last_playing = playing
 	_play_pause_button.texture_normal = _pause_texture if playing else _play_texture
 	_play_pause_button.tooltip_text = "暂停" if playing else "播放"
 	_previous_button.disabled = not found or not bool(info.get("can_previous", false))
@@ -107,6 +123,12 @@ func set_session(info: Dictionary, mode_name: String) -> void:
 	_mode_button.texture_normal = _shuffle_texture if mode_name == "shuffle" else _repeat_texture
 	_mode_badge.text = _mode_badge_text(mode_name)
 	_mode_button.tooltip_text = "播放顺序：" + _mode_display_name(mode_name)
+	if found and playing and not track_id.is_empty() and track_id != previous_track:
+		show_companion_note("《%s》开始啦，我陪你一起听。" % String(info.get("title", "这首歌")).left(18), "🎧")
+	elif found and playing and not was_playing:
+		show_companion_note("音乐继续啦，我也回来陪你听。", "♪")
+	elif found and not playing and was_playing:
+		show_companion_note("暂停一下也好，我就在这里等你。", "♡")
 
 
 func set_progress(position_ms: int, duration_ms: int) -> void:
@@ -126,8 +148,15 @@ func set_lyrics(lines: Array[Dictionary], current_index: int, source: String) ->
 		_lyric_labels[row].text = String(lines[line_index].get("text", "")) if line_index >= 0 and line_index < lines.size() else ""
 	_lyrics_source_label.text = source
 	if current_index != _last_lyric_index:
+		if _last_lyric_index >= 0:
+			_lyric_reaction_counter += 1
 		_animate_lyrics(1.0 if _last_lyric_index < 0 or current_index > _last_lyric_index else -1.0)
 		_last_lyric_index = current_index
+		if _lyric_reaction_counter >= 5:
+			_lyric_reaction_counter = 0
+			var current_line := String(lines[current_index].get("text", "")).strip_edges()
+			if not current_line.is_empty():
+				show_companion_note("刚才这句我记住了：“%s”" % current_line.left(20), "🎵")
 
 
 func show_lyric_message(message: String) -> void:
@@ -139,19 +168,18 @@ func show_companion_note(text: String, emoji: String) -> void:
 	_companion_emoji.text = emoji if not emoji.is_empty() else "♪"
 	if _note_tween and _note_tween.is_valid():
 		_note_tween.kill()
+	_companion_panel.modulate.a = 0.72
 	_companion_note.modulate.a = 0.0
 	_companion_emoji.modulate.a = 0.0
-	_companion_note.position.y += 12.0
-	_companion_emoji.position.y += 12.0
+	_companion_note.position.y += 8.0
+	_companion_emoji.position.y += 8.0
 	_note_tween = create_tween()
 	_note_tween.set_parallel(true)
+	_note_tween.tween_property(_companion_panel, "modulate:a", 1.0, 0.28)
 	_note_tween.tween_property(_companion_note, "modulate:a", 1.0, 0.24)
 	_note_tween.tween_property(_companion_emoji, "modulate:a", 1.0, 0.24)
-	_note_tween.tween_property(_companion_note, "position:y", _companion_note.position.y - 12.0, 0.28).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_note_tween.tween_property(_companion_emoji, "position:y", _companion_emoji.position.y - 12.0, 0.28).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_note_tween.chain().tween_interval(6.0)
-	_note_tween.chain().tween_property(_companion_note, "modulate:a", 0.0, 0.5)
-	_note_tween.parallel().tween_property(_companion_emoji, "modulate:a", 0.0, 0.5)
+	_note_tween.tween_property(_companion_note, "position:y", _companion_note.position.y - 8.0, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_note_tween.tween_property(_companion_emoji, "position:y", _companion_emoji.position.y - 8.0, 0.3).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 
 
 func _build_ui() -> void:
@@ -170,6 +198,21 @@ func _build_ui() -> void:
 	_skin.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_skin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_skin)
+
+	_content_wash = Panel.new()
+	_content_wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var wash_style := StyleBoxFlat.new()
+	wash_style.bg_color = Color(1.0, 0.975, 0.96, 0.9)
+	wash_style.border_color = Color(0.88, 0.68, 0.7, 0.55)
+	wash_style.set_border_width_all(2)
+	wash_style.set_corner_radius_all(20)
+	_content_wash.add_theme_stylebox_override("panel", wash_style)
+	add_child(_content_wash)
+
+	_column_divider = ColorRect.new()
+	_column_divider.color = Color(0.86, 0.65, 0.68, 0.32)
+	_column_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_column_divider)
 
 	_cover_frame = Panel.new()
 	_cover_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -249,19 +292,52 @@ func _build_ui() -> void:
 	_exit_button.pressed.connect(func() -> void: exit_requested.emit())
 	add_child(_exit_button)
 
+	_companion_panel = Panel.new()
+	_companion_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var companion_style := StyleBoxFlat.new()
+	companion_style.bg_color = Color(1.0, 0.92, 0.92, 0.82)
+	companion_style.border_color = Color(0.86, 0.57, 0.63, 0.75)
+	companion_style.set_border_width_all(2)
+	companion_style.set_corner_radius_all(18)
+	companion_style.shadow_color = Color(0.54, 0.29, 0.34, 0.12)
+	companion_style.shadow_size = 9
+	_companion_panel.add_theme_stylebox_override("panel", companion_style)
+	add_child(_companion_panel)
+
+	_companion_title = _make_label("陪你听歌 · 等待音乐", 18, Color("9d5f6e"), HORIZONTAL_ALIGNMENT_LEFT)
+	add_child(_companion_title)
 	_companion_emoji = _make_label("♪", 28, Color("db8294"), HORIZONTAL_ALIGNMENT_CENTER)
-	_companion_emoji.modulate.a = 0.0
 	add_child(_companion_emoji)
-	_companion_note = _make_label("", 19, Color("8c5f69"), HORIZONTAL_ALIGNMENT_LEFT)
+	_companion_note = _make_label("放一首歌吧，我会认真陪你听。", 19, Color("754a55"), HORIZONTAL_ALIGNMENT_LEFT)
 	_companion_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_companion_note.modulate.a = 0.0
 	add_child(_companion_note)
+
+	_companion_sprite = AnimatedSprite2D.new()
+	_companion_sprite.sprite_frames = load("res://assets/runtime/pet_sprite_frames.tres") as SpriteFrames
+	if _companion_sprite.sprite_frames and not _companion_sprite.sprite_frames.get_animation_names().is_empty():
+		var animation: StringName = &"music" if _companion_sprite.sprite_frames.has_animation(&"music") else _companion_sprite.sprite_frames.get_animation_names()[0]
+		_companion_sprite.play(animation)
+	_companion_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	add_child(_companion_sprite)
+
+
+func has_visible_companion() -> bool:
+	return is_instance_valid(_companion_panel) and _companion_panel.visible \
+		and is_instance_valid(_companion_note) and _companion_note.visible \
+		and not _companion_note.text.strip_edges().is_empty()
+
+
+func get_companion_note_text() -> String:
+	return _companion_note.text if is_instance_valid(_companion_note) else ""
 
 
 func _layout() -> void:
 	if not is_inside_tree() or not is_instance_valid(_cover_frame):
 		return
-	var cover_frame_rect := _scaled_rect(Rect2(178, 235, 352, 348))
+	_set_control_rect(_content_wash, Rect2(72, 145, 1534, 745))
+	_set_control_rect(_column_divider, Rect2(600, 205, 2, 475))
+
+	var cover_frame_rect := _scaled_rect(Rect2(155, 225, 390, 390))
 	_cover_frame.position = cover_frame_rect.position
 	_cover_frame.size = cover_frame_rect.size
 	var cover_inset := _scaled_vector(Vector2(4, 4))
@@ -272,23 +348,34 @@ func _layout() -> void:
 		_cover.material.set_shader_parameter("rect_size", _cover.size)
 		_cover.material.set_shader_parameter("corner_radius", 18.0 * minf(size.x / BASE_SIZE.x, size.y / BASE_SIZE.y))
 
-	_set_control_rect(_cover_decorations[0], Rect2(147, 534, 123, 96))
-	_set_control_rect(_cover_decorations[1], Rect2(434, 534, 123, 96))
-	_set_control_rect(_cover_decorations[2], Rect2(235, 493, 217, 168))
-	_set_control_rect(_title_label, Rect2(608, 225, 650, 68))
-	_set_control_rect(_artist_label, Rect2(608, 300, 650, 48))
-	_set_control_rect(_album_label, Rect2(608, 350, 650, 40))
-	_set_control_rect(_source_label, Rect2(185, 132, 460, 50))
+	_set_control_rect(_cover_decorations[0], Rect2(128, 556, 123, 96))
+	_set_control_rect(_cover_decorations[1], Rect2(449, 556, 123, 96))
+	_set_control_rect(_cover_decorations[2], Rect2(242, 520, 217, 168))
+	_set_control_rect(_source_label, Rect2(650, 165, 805, 32))
+	_set_control_rect(_title_label, Rect2(650, 198, 805, 54))
+	_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_set_control_rect(_artist_label, Rect2(650, 248, 805, 34))
+	_artist_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_set_control_rect(_album_label, Rect2(650, 278, 805, 28))
+	_album_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	for row in _lyric_labels.size():
 		var label := _lyric_labels[row]
-		_set_control_rect(label, Rect2(575, 395 + row * 55, 875, 52))
+		_set_control_rect(label, Rect2(645, 320 + row * 43, 810, 40))
 		label.pivot_offset = label.size * 0.5
-	_set_control_rect(_lyrics_source_label, Rect2(1150, 655, 300, 28))
+	_set_control_rect(_lyrics_source_label, Rect2(1160, 520, 295, 24))
 
-	_set_control_rect(_progress, Rect2(215, 677, 1187, 54))
-	_set_control_rect(_elapsed_label, Rect2(225, 716, 100, 28))
-	_set_control_rect(_duration_label, Rect2(1310, 716, 90, 28))
+	_set_control_rect(_companion_panel, Rect2(650, 555, 805, 124))
+	_set_control_rect(_companion_title, Rect2(700, 570, 520, 28))
+	_set_control_rect(_companion_emoji, Rect2(686, 608, 44, 40))
+	_set_control_rect(_companion_note, Rect2(736, 602, 520, 52))
+	var companion_scale := minf(size.x / BASE_SIZE.x, size.y / BASE_SIZE.y)
+	_companion_sprite.position = _scaled_vector(Vector2(1370, 617))
+	_companion_sprite.scale = Vector2.ONE * companion_scale * 0.42
+
+	_set_control_rect(_progress, Rect2(240, 700, 1138, 48))
+	_set_control_rect(_elapsed_label, Rect2(250, 738, 100, 26))
+	_set_control_rect(_duration_label, Rect2(1280, 738, 90, 26))
 
 	_set_control_rect(_previous_button, PREVIOUS_RECT)
 	_set_control_rect(_play_pause_button, PLAY_PAUSE_RECT)
@@ -299,8 +386,6 @@ func _layout() -> void:
 	_set_control_rect(_minimize_button, MINIMIZE_RECT)
 	_set_control_rect(_exit_button, EXIT_RECT)
 
-	_set_control_rect(_companion_emoji, Rect2(620, 137, 48, 42))
-	_set_control_rect(_companion_note, Rect2(672, 133, 560, 54))
 
 
 func _make_label(text_value: String, font_size: int, color: Color, alignment: HorizontalAlignment) -> Label:

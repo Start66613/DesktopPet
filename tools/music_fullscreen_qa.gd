@@ -37,6 +37,8 @@ func _init() -> void:
 	assert(panel._immersive_view.size.x >= expected.x - 2)
 	assert(panel._immersive_view.size.y >= expected.y - 2)
 	assert(panel._immersive_view.uses_player_skin())
+	assert(panel._immersive_view.has_visible_companion())
+	assert(not panel._immersive_view.get_companion_note_text().is_empty())
 	var exit_rect: Rect2 = panel._immersive_view.get_exit_button_rect()
 	assert(exit_rect.size.x >= float(expected.x) * 0.055 and exit_rect.size.y >= float(expected.y) * 0.09)
 	assert(exit_rect.end.x <= expected.x + 1 and exit_rect.end.y <= expected.y + 1)

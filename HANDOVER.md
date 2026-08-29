@@ -512,3 +512,11 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 沉浸窗口不再设置 `always_on_top`，创建和显示后均显式关闭 Windows 置顶标记；只在进入时聚焦一次。现在可用 `Alt+Tab`、任务栏或其他窗口正常切走，桌宠普通窗口的原有置顶状态仅在退出后恢复。
 - `tools/music_fullscreen_qa.gd` 不再直接发射按钮信号，而是通过原生 `Window.push_input` 发送真实左键事件到关闭热区，验证窗口销毁和普通播放器恢复；同时断言 `WINDOW_FLAG_ALWAYS_ON_TOP=false`。Godot 4.7.1 回归输出包含 `MUSIC_FULLSCREEN_RESTORE_QA_OK size=820x465 position=40,40 pointer_exit=true`。
 - 正式 Release 已重建：安装器 SHA-256 `939e22a35642e1ff8ed2c9072c0a303056eb83d45168e6cbf9685fef97b3b9bc`；便携包 SHA-256 `dd91aa549791623d473fab7cca829bdae8e8a89c5644947ebe2c4db09218e8c5`。
+
+## 2026-08-29 全屏播放器重排与音乐陪伴强化
+
+- 修改前备份：`D:\game creat\DesktopPet\.backups\music-fullscreen-20260829-233417`。
+- `scripts/immersive_music_view.gd` 将沉浸界面重排为常见播放器结构：左侧独立大封面，右侧歌曲信息与五行歌词，底部进度和紧凑播放控制；普通播放器的奶油粉蕾丝、蝴蝶结和玫瑰外框继续复用，歌曲文字不再压住封面装饰。
+- 全屏歌词下方新增持续可见的“陪你听歌”区域，包含桌宠听歌动画、状态和心声。切歌、继续、暂停及每五次歌词变化都会更新内容，心声不再显示数秒后消失。
+- `scripts/pet.gd` 将连续播放时的陪听反应改为双层机制：切歌后继续请求 AI 结合歌曲与歌词生成感想；同时每 45 至 75 秒保证一次不依赖 API 的本地陪听反应，优先引用当前歌词，其次引用歌曲名，免费模型繁忙或主动 AI 关闭时也不会完全没有音乐陪伴。
+- `tools/music_fullscreen_qa.gd` 增加常驻陪伴区域断言。Godot 4.7.1 编译、主场景启动和全屏两次进入/退出回归均通过，最终截图为 `logs/music_fullscreen_fixed_qa.png`。
