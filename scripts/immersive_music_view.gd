@@ -10,28 +10,48 @@ signal seek_requested(ratio: float)
 
 const UI_DIR := "res://assets/music/runtime/ui"
 const ProgressControl := preload("res://scripts/music_progress_control.gd")
+const BASE_SIZE := Vector2(1678, 951)
+const PREVIOUS_REGION := Rect2(423, 747, 135, 137)
+const PLAY_REGION := Rect2(592, 738, 195, 151)
+const PAUSE_REGION := Rect2(817, 746, 143, 139)
+const NEXT_REGION := Rect2(999, 748, 139, 137)
+const SHUFFLE_REGION := Rect2(1170, 774, 88, 88)
+const REPEAT_REGION := Rect2(1292, 773, 91, 89)
+const PREVIOUS_RECT := Rect2(555, 746, 135, 137)
+const PLAY_PAUSE_RECT := Rect2(742, 738, 195, 151)
+const NEXT_RECT := Rect2(988, 746, 139, 137)
+const MODE_RECT := Rect2(1230, 773, 91, 89)
+const MINIMIZE_RECT := Rect2(1452, 42, 112, 112)
+const EXIT_RECT := Rect2(1558, 40, 112, 116)
 
 var _font: Font
 var _background: ColorRect
-var _backdrop: TextureRect
-var _veil: ColorRect
+var _skin: TextureRect
 var _cover_frame: Panel
 var _cover: TextureRect
+var _cover_decorations: Array[TextureRect] = []
 var _title_label: Label
 var _artist_label: Label
+var _album_label: Label
 var _source_label: Label
 var _lyric_labels: Array[Label] = []
 var _lyrics_source_label: Label
 var _progress: PetMusicProgressControl
 var _elapsed_label: Label
 var _duration_label: Label
-var _previous_button: Button
-var _play_pause_button: Button
-var _next_button: Button
-var _mode_button: Button
-var _exit_button: Button
+var _previous_button: TextureButton
+var _play_pause_button: TextureButton
+var _next_button: TextureButton
+var _mode_button: TextureButton
+var _mode_badge: Label
+var _minimize_button: TextureButton
+var _exit_button: TextureButton
 var _companion_note: Label
 var _companion_emoji: Label
+var _play_texture: AtlasTexture
+var _pause_texture: AtlasTexture
+var _shuffle_texture: AtlasTexture
+var _repeat_texture: AtlasTexture
 var _note_tween: Tween
 var _lyric_tween: Tween
 var _cover_tween: Tween
@@ -63,7 +83,6 @@ func _input(event: InputEvent) -> void:
 
 func set_cover(texture: Texture2D) -> void:
 	_cover.texture = texture
-	_backdrop.texture = texture
 	if texture:
 		_play_cover_motion()
 
@@ -73,18 +92,20 @@ func set_session(info: Dictionary, mode_name: String) -> void:
 	var found := bool(info.get("found", false))
 	_title_label.text = String(info.get("title", "等待播放器")) if found else "等待播放器"
 	_artist_label.text = String(info.get("artist", "打开 QQ音乐 或 网易云音乐")) if found else "打开 QQ音乐 或 网易云音乐"
+	_album_label.text = String(info.get("album", "")) if found else "检测到播放后会自动同步"
 	_source_label.text = "%s  ·  %s" % [
 		String(info.get("source_label", "本地播放器")) if found else "音乐中心",
 		"正在播放" if String(info.get("playback_status", "")) == "playing" else ("已暂停" if found else "等待连接")
 	]
 	var playing := String(info.get("playback_status", "")) == "playing"
-	_play_pause_button.text = "Ⅱ" if playing else "▶"
+	_play_pause_button.texture_normal = _pause_texture if playing else _play_texture
 	_play_pause_button.tooltip_text = "暂停" if playing else "播放"
 	_previous_button.disabled = not found or not bool(info.get("can_previous", false))
 	_next_button.disabled = not found or not bool(info.get("can_next", false))
 	_play_pause_button.disabled = not found
 	_mode_button.disabled = not found
-	_mode_button.text = _mode_symbol(mode_name)
+	_mode_button.texture_normal = _shuffle_texture if mode_name == "shuffle" else _repeat_texture
+	_mode_badge.text = _mode_badge_text(mode_name)
 	_mode_button.tooltip_text = "播放顺序：" + _mode_display_name(mode_name)
 
 
@@ -136,39 +157,27 @@ func show_companion_note(text: String, emoji: String) -> void:
 func _build_ui() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_background = ColorRect.new()
-	_background.color = Color("21191f")
+	_background.color = Color("f8ece8")
 	_background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_background)
 
-	_backdrop = TextureRect.new()
-	_backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_backdrop.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	_backdrop.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	_backdrop.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	_backdrop.modulate = Color(1.0, 0.86, 0.9, 0.16)
-	_backdrop.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_backdrop)
-
-	_veil = ColorRect.new()
-	_veil.color = Color(0.12, 0.08, 0.11, 0.76)
-	_veil.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(_veil)
-
-	_add_decoration("bow_wide.png", Vector2.ZERO, Vector2(300, 90), 2)
-	_add_decoration("rose.png", Vector2.ZERO, Vector2(82, 64), 2)
-	_add_decoration("rose.png", Vector2.ZERO, Vector2(82, 64), 2)
+	_skin = TextureRect.new()
+	_skin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_skin.texture = load(UI_DIR + "/player_panel_clean.png") as Texture2D
+	_skin.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_skin.stretch_mode = TextureRect.STRETCH_SCALE
+	_skin.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_skin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_skin)
 
 	_cover_frame = Panel.new()
 	_cover_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var cover_style := StyleBoxFlat.new()
-	cover_style.bg_color = Color("fff8f4")
-	cover_style.border_color = Color("e7b2bd")
-	cover_style.set_border_width_all(4)
-	cover_style.set_corner_radius_all(18)
-	cover_style.shadow_color = Color(0, 0, 0, 0.32)
-	cover_style.shadow_size = 18
+	cover_style.bg_color = Color("fff9f5")
+	cover_style.border_color = Color("e7c2c0")
+	cover_style.set_border_width_all(3)
+	cover_style.set_corner_radius_all(14)
 	_cover_frame.add_theme_stylebox_override("panel", cover_style)
 	add_child(_cover_frame)
 
@@ -177,56 +186,73 @@ func _build_ui() -> void:
 	_cover.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	_cover.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	_cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_cover.material = _make_cover_material(Vector2(344, 340), 20.0)
 	_cover_frame.add_child(_cover)
+	_add_cover_decoration("rose.png")
+	_add_cover_decoration("rose.png")
+	_add_cover_decoration("bow_large.png")
 
-	_title_label = _make_label("等待播放器", 34, Color("fff2f2"), HORIZONTAL_ALIGNMENT_CENTER)
+	_title_label = _make_label("等待播放器", 38, Color("6f4955"), HORIZONTAL_ALIGNMENT_LEFT)
 	_title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	add_child(_title_label)
-	_artist_label = _make_label("打开 QQ音乐 或 网易云音乐", 21, Color("e5bcc5"), HORIZONTAL_ALIGNMENT_CENTER)
+	_artist_label = _make_label("打开 QQ音乐 或 网易云音乐", 25, Color("9f6874"), HORIZONTAL_ALIGNMENT_LEFT)
 	_artist_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	add_child(_artist_label)
-	_source_label = _make_label("音乐中心", 16, Color("c9a3aa"), HORIZONTAL_ALIGNMENT_LEFT)
+	_album_label = _make_label("检测到播放后会自动同步", 20, Color("ad858b"), HORIZONTAL_ALIGNMENT_LEFT)
+	_album_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	add_child(_album_label)
+	_source_label = _make_label("音乐中心", 20, Color("a65f70"), HORIZONTAL_ALIGNMENT_LEFT)
 	add_child(_source_label)
 
 	for row in 5:
-		var size_px := 23 if row != 2 else 38
-		var color := Color("a98790") if row in [0, 4] else (Color("d3aeb7") if row in [1, 3] else Color("fff4f1"))
+		var size_px := 22 if row != 2 else 34
+		var color := Color("c3a3a8") if row in [0, 4] else (Color("9f7b83") if row in [1, 3] else Color("714a56"))
 		var lyric := _make_label("", size_px, color, HORIZONTAL_ALIGNMENT_CENTER)
 		lyric.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		_lyric_labels.append(lyric)
 		add_child(lyric)
-	_lyrics_source_label = _make_label("", 13, Color("a98790"), HORIZONTAL_ALIGNMENT_RIGHT)
+	_lyrics_source_label = _make_label("", 13, Color("b18c93"), HORIZONTAL_ALIGNMENT_RIGHT)
 	add_child(_lyrics_source_label)
 
 	_progress = ProgressControl.new()
 	_progress.seek_requested.connect(func(ratio: float) -> void: seek_requested.emit(ratio))
 	add_child(_progress)
-	_elapsed_label = _make_label("0:00", 14, Color("d8b6be"), HORIZONTAL_ALIGNMENT_LEFT)
-	_duration_label = _make_label("0:00", 14, Color("d8b6be"), HORIZONTAL_ALIGNMENT_RIGHT)
+	_elapsed_label = _make_label("0:00", 15, Color("a77a82"), HORIZONTAL_ALIGNMENT_LEFT)
+	_duration_label = _make_label("0:00", 15, Color("a77a82"), HORIZONTAL_ALIGNMENT_RIGHT)
 	add_child(_elapsed_label)
 	add_child(_duration_label)
 
-	_previous_button = _make_control_button("⏮", "上一首")
+	_previous_button = _make_atlas_button(PREVIOUS_REGION, "上一首")
 	_previous_button.pressed.connect(func() -> void: previous_requested.emit())
-	_play_pause_button = _make_control_button("▶", "播放", true)
+	_play_texture = _make_atlas_texture(PLAY_REGION)
+	_pause_texture = _make_atlas_texture(PAUSE_REGION)
+	_play_pause_button = _make_atlas_button(PLAY_REGION, "播放")
 	_play_pause_button.pressed.connect(func() -> void: play_pause_requested.emit())
-	_next_button = _make_control_button("⏭", "下一首")
+	_next_button = _make_atlas_button(NEXT_REGION, "下一首")
 	_next_button.pressed.connect(func() -> void: next_requested.emit())
-	_mode_button = _make_control_button("↻", "播放顺序")
+	_shuffle_texture = _make_atlas_texture(SHUFFLE_REGION)
+	_repeat_texture = _make_atlas_texture(REPEAT_REGION)
+	_mode_button = _make_atlas_button(REPEAT_REGION, "播放顺序")
 	_mode_button.pressed.connect(func() -> void: mode_requested.emit())
 	add_child(_previous_button)
 	add_child(_play_pause_button)
 	add_child(_next_button)
 	add_child(_mode_button)
+	_mode_badge = _make_label(">", 21, Color("6f9478"), HORIZONTAL_ALIGNMENT_CENTER)
+	_mode_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_mode_button.add_child(_mode_badge)
 
-	_exit_button = _make_control_button("⛶", "退出全屏")
+	_minimize_button = _make_atlas_button(MINIMIZE_RECT, "返回窗口")
+	_minimize_button.pressed.connect(func() -> void: exit_requested.emit())
+	add_child(_minimize_button)
+	_exit_button = _make_atlas_button(EXIT_RECT, "退出全屏（Esc / F11）")
 	_exit_button.pressed.connect(func() -> void: exit_requested.emit())
 	add_child(_exit_button)
 
-	_companion_emoji = _make_label("♪", 28, Color("f1b6c3"), HORIZONTAL_ALIGNMENT_CENTER)
+	_companion_emoji = _make_label("♪", 28, Color("db8294"), HORIZONTAL_ALIGNMENT_CENTER)
 	_companion_emoji.modulate.a = 0.0
 	add_child(_companion_emoji)
-	_companion_note = _make_label("", 19, Color("f9dfe4"), HORIZONTAL_ALIGNMENT_LEFT)
+	_companion_note = _make_label("", 19, Color("8c5f69"), HORIZONTAL_ALIGNMENT_LEFT)
 	_companion_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_companion_note.modulate.a = 0.0
 	add_child(_companion_note)
@@ -235,68 +261,46 @@ func _build_ui() -> void:
 func _layout() -> void:
 	if not is_inside_tree() or not is_instance_valid(_cover_frame):
 		return
-	var viewport := size
-	var cover_side := clampf(minf(viewport.y * 0.46, viewport.x * 0.31), 280.0, 520.0)
-	var left_center_x := viewport.x * 0.25
-	var cover_position := Vector2(left_center_x - cover_side * 0.5, maxf(105.0, viewport.y * 0.16))
-	_cover_frame.position = cover_position
-	_cover_frame.size = Vector2.ONE * cover_side
-	_cover.position = Vector2(10, 10)
-	_cover.size = Vector2.ONE * (cover_side - 20.0)
+	var cover_frame_rect := _scaled_rect(Rect2(178, 235, 352, 348))
+	_cover_frame.position = cover_frame_rect.position
+	_cover_frame.size = cover_frame_rect.size
+	var cover_inset := _scaled_vector(Vector2(4, 4))
+	_cover.position = cover_inset
+	_cover.size = cover_frame_rect.size - cover_inset * 2.0
 	_cover.pivot_offset = _cover.size * 0.5
+	if _cover.material:
+		_cover.material.set_shader_parameter("rect_size", _cover.size)
+		_cover.material.set_shader_parameter("corner_radius", 18.0 * minf(size.x / BASE_SIZE.x, size.y / BASE_SIZE.y))
 
-	_title_label.position = Vector2(cover_position.x - 40.0, cover_position.y + cover_side + 24.0)
-	_title_label.size = Vector2(cover_side + 80.0, 52.0)
-	_artist_label.position = _title_label.position + Vector2(0, 47)
-	_artist_label.size = Vector2(cover_side + 80.0, 34.0)
-	_source_label.position = Vector2(viewport.x * 0.055, viewport.y * 0.055)
-	_source_label.size = Vector2(viewport.x * 0.38, 30)
+	_set_control_rect(_cover_decorations[0], Rect2(147, 534, 123, 96))
+	_set_control_rect(_cover_decorations[1], Rect2(434, 534, 123, 96))
+	_set_control_rect(_cover_decorations[2], Rect2(235, 493, 217, 168))
+	_set_control_rect(_title_label, Rect2(608, 225, 650, 68))
+	_set_control_rect(_artist_label, Rect2(608, 300, 650, 48))
+	_set_control_rect(_album_label, Rect2(608, 350, 650, 40))
+	_set_control_rect(_source_label, Rect2(185, 132, 460, 50))
 
-	var lyric_left := viewport.x * 0.46
-	var lyric_width := viewport.x * 0.45
-	var lyric_center_y := viewport.y * 0.43
-	var spacing := clampf(viewport.y * 0.078, 52.0, 78.0)
 	for row in _lyric_labels.size():
 		var label := _lyric_labels[row]
-		label.position = Vector2(lyric_left, lyric_center_y + (row - 2) * spacing - 32.0)
-		label.size = Vector2(lyric_width, 64.0)
+		_set_control_rect(label, Rect2(575, 395 + row * 55, 875, 52))
 		label.pivot_offset = label.size * 0.5
-	_lyrics_source_label.position = Vector2(lyric_left, lyric_center_y + spacing * 2.7)
-	_lyrics_source_label.size = Vector2(lyric_width, 24)
+	_set_control_rect(_lyrics_source_label, Rect2(1150, 655, 300, 28))
 
-	var progress_left := viewport.x * 0.13
-	var progress_width := viewport.x * 0.74
-	var progress_y := viewport.y * 0.79
-	_progress.position = Vector2(progress_left, progress_y)
-	_progress.size = Vector2(progress_width, 34)
-	_elapsed_label.position = Vector2(progress_left, progress_y + 31)
-	_elapsed_label.size = Vector2(80, 24)
-	_duration_label.position = Vector2(progress_left + progress_width - 80, progress_y + 31)
-	_duration_label.size = Vector2(80, 24)
+	_set_control_rect(_progress, Rect2(215, 677, 1187, 54))
+	_set_control_rect(_elapsed_label, Rect2(225, 716, 100, 28))
+	_set_control_rect(_duration_label, Rect2(1310, 716, 90, 28))
 
-	var controls_y := viewport.y * 0.875
-	var button_size := clampf(viewport.y * 0.065, 54.0, 76.0)
-	var gap := button_size * 0.35
-	var total_width := button_size * 4.0 + gap * 3.0
-	var controls_x := (viewport.x - total_width) * 0.5
-	for index in 4:
-		var button: Button = [_previous_button, _play_pause_button, _next_button, _mode_button][index]
-		button.position = Vector2(controls_x + index * (button_size + gap), controls_y)
-		button.size = Vector2.ONE * button_size
-		button.pivot_offset = button.size * 0.5
-	_exit_button.position = Vector2(viewport.x - 86, 34)
-	_exit_button.size = Vector2(54, 54)
+	_set_control_rect(_previous_button, PREVIOUS_RECT)
+	_set_control_rect(_play_pause_button, PLAY_PAUSE_RECT)
+	_set_control_rect(_next_button, NEXT_RECT)
+	_set_control_rect(_mode_button, MODE_RECT)
+	_mode_badge.position = Vector2(_mode_button.size.x * 0.56, 0)
+	_mode_badge.size = Vector2(_mode_button.size.x * 0.38, _mode_button.size.y * 0.4)
+	_set_control_rect(_minimize_button, MINIMIZE_RECT)
+	_set_control_rect(_exit_button, EXIT_RECT)
 
-	_companion_emoji.position = Vector2(viewport.x * 0.46, viewport.y * 0.68)
-	_companion_emoji.size = Vector2(48, 42)
-	_companion_note.position = Vector2(viewport.x * 0.46 + 52, viewport.y * 0.67)
-	_companion_note.size = Vector2(viewport.x * 0.39, 70)
-
-	var decorations := get_tree().get_nodes_in_group("immersive_music_decoration")
-	if decorations.size() >= 3:
-		decorations[0].position = Vector2((viewport.x - 300.0) * 0.5, 18)
-		decorations[1].position = Vector2(30, viewport.y - 78)
-		decorations[2].position = Vector2(viewport.x - 112, viewport.y - 78)
+	_set_control_rect(_companion_emoji, Rect2(620, 137, 48, 42))
+	_set_control_rect(_companion_note, Rect2(672, 133, 560, 54))
 
 
 func _make_label(text_value: String, font_size: int, color: Color, alignment: HorizontalAlignment) -> Label:
@@ -312,47 +316,102 @@ func _make_label(text_value: String, font_size: int, color: Color, alignment: Ho
 	return label
 
 
-func _make_control_button(symbol: String, tooltip: String, emphasized: bool = false) -> Button:
-	var button := Button.new()
-	button.text = symbol
+func _make_atlas_button(region: Rect2, tooltip: String) -> TextureButton:
+	var button := TextureButton.new()
+	button.texture_normal = _make_atlas_texture(region)
+	button.ignore_texture_size = true
+	button.stretch_mode = TextureButton.STRETCH_SCALE
+	button.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.z_index = 100
 	button.tooltip_text = tooltip
-	button.focus_mode = Control.FOCUS_NONE
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	button.add_theme_font_size_override("font_size", 28 if emphasized else 23)
-	button.add_theme_color_override("font_color", Color("704a56"))
-	button.add_theme_color_override("font_hover_color", Color("704a56"))
-	button.add_theme_color_override("font_pressed_color", Color("704a56"))
-	var symbol_font := SystemFont.new()
-	symbol_font.font_names = PackedStringArray(["Segoe UI Symbol", "Segoe UI"])
-	button.add_theme_font_override("font", symbol_font)
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color("f8e9e6")
-	normal.border_color = Color("dc9faa")
-	normal.set_border_width_all(2)
-	normal.set_corner_radius_all(36)
-	var hover := normal.duplicate()
-	hover.bg_color = Color("f5cbd2")
-	button.add_theme_stylebox_override("normal", normal)
-	button.add_theme_stylebox_override("hover", hover)
-	button.add_theme_stylebox_override("pressed", hover)
-	button.add_theme_stylebox_override("focus", normal)
 	button.mouse_entered.connect(_animate_control.bind(button, true))
 	button.mouse_exited.connect(_animate_control.bind(button, false))
 	return button
 
 
-func _add_decoration(texture_name: String, node_position: Vector2, node_size: Vector2, layer: int) -> void:
+func _make_atlas_texture(region: Rect2) -> AtlasTexture:
+	var atlas := AtlasTexture.new()
+	atlas.atlas = load(UI_DIR + "/player_panel.png") as Texture2D
+	atlas.region = region
+	return atlas
+
+
+func _add_cover_decoration(texture_name: String) -> void:
 	var decoration := TextureRect.new()
-	decoration.position = node_position
-	decoration.size = node_size
 	decoration.texture = load(UI_DIR + "/" + texture_name) as Texture2D
 	decoration.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	decoration.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	decoration.stretch_mode = TextureRect.STRETCH_SCALE
 	decoration.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	decoration.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	decoration.z_index = layer
-	decoration.add_to_group("immersive_music_decoration")
+	decoration.z_index = 5
+	_cover_decorations.append(decoration)
 	add_child(decoration)
+
+
+func _make_cover_material(rect_size: Vector2, radius: float) -> ShaderMaterial:
+	var shader := Shader.new()
+	shader.code = """
+shader_type canvas_item;
+uniform vec2 rect_size = vec2(344.0, 340.0);
+uniform float corner_radius = 20.0;
+varying vec2 local_position;
+
+void vertex() {
+	local_position = VERTEX;
+}
+
+void fragment() {
+	vec4 color = texture(TEXTURE, UV);
+	vec2 half_size = rect_size * 0.5;
+	vec2 rounded = abs(local_position - half_size) - (half_size - vec2(corner_radius));
+	float distance_to_edge = length(max(rounded, vec2(0.0))) + min(max(rounded.x, rounded.y), 0.0) - corner_radius;
+	color.a *= 1.0 - smoothstep(-1.0, 1.0, distance_to_edge);
+	COLOR = color;
+}
+"""
+	var material := ShaderMaterial.new()
+	material.shader = shader
+	material.set_shader_parameter("rect_size", rect_size)
+	material.set_shader_parameter("corner_radius", radius)
+	return material
+
+
+func _scaled_rect(base_rect: Rect2) -> Rect2:
+	return Rect2(_scaled_vector(base_rect.position), _scaled_vector(base_rect.size))
+
+
+func _scaled_vector(base_value: Vector2) -> Vector2:
+	return Vector2(base_value.x * size.x / BASE_SIZE.x, base_value.y * size.y / BASE_SIZE.y)
+
+
+func _set_control_rect(control: Control, base_rect: Rect2) -> void:
+	var scaled := _scaled_rect(base_rect)
+	control.position = scaled.position
+	control.size = scaled.size
+	control.pivot_offset = scaled.size * 0.5
+
+
+func uses_player_skin() -> bool:
+	return is_instance_valid(_skin) and _skin.texture != null
+
+
+func get_exit_button_rect() -> Rect2:
+	return Rect2(_exit_button.position, _exit_button.size) if is_instance_valid(_exit_button) else Rect2()
+
+
+func is_window_control_position(local_position: Vector2) -> bool:
+	if not is_instance_valid(_minimize_button) or not is_instance_valid(_exit_button):
+		return false
+	var padding := maxf(10.0, size.y * 0.012)
+	var minimize_hit := Rect2(_minimize_button.position, _minimize_button.size).grow(padding)
+	var exit_hit := Rect2(_exit_button.position, _exit_button.size).grow(padding)
+	if minimize_hit.has_point(local_position) or exit_hit.has_point(local_position):
+		return true
+	# Native Windows input can report physical pixels while the viewport is DPI-scaled.
+	return Rect2(size.x * 0.84, 0.0, size.x * 0.16, size.y * 0.18).has_point(local_position)
 
 
 func _show_lyric_message(message: String) -> void:
@@ -392,15 +451,15 @@ func _animate_control(button: Control, hovered: bool) -> void:
 	tween.tween_property(button, "scale", Vector2.ONE * (1.08 if hovered else 1.0), 0.13).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 
-func _mode_symbol(mode_name: String) -> String:
+func _mode_badge_text(mode_name: String) -> String:
 	match mode_name:
 		"single":
 			return "1"
-		"shuffle":
-			return "⇄"
 		"sequential":
-			return "→"
-	return "↻"
+			return ">"
+		"list":
+			return "A"
+	return ""
 
 
 func _mode_display_name(mode_name: String) -> String:

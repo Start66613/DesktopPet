@@ -488,3 +488,27 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - `scripts/music_player_panel.gd` 在沉浸模式下仍持续刷新媒体进度和歌词；`scripts/immersive_music_view.gd` 的布局增加场景树状态保护。`tools/music_fullscreen_qa.gd` 现在验证沉浸视图尺寸、非单色像素内容、置顶状态、普通窗口尺寸不变及退出恢复。
 - 独立 QA 输出：`MUSIC_FULLSCREEN_QA_OK immersive_window_id=2 size=1920x1080 player_covered=true content_visible=true button_visible=true`，退出恢复 `820x465 @ 40,40`。完整桌宠主场景通过真实桌面合成截图 `logs/music_fullscreen_main_scene.png` 验证：沉浸 UI 覆盖 `1920x1080` 全屏，任务栏、桌宠和普通音乐窗口均未遮挡画面，右上角退出按钮可见。
 - 正式 Release 再次用 `--show-music-fullscreen` 直达启动并通过桌面合成截图 `logs/music_fullscreen_release.png` 验证。新安装器 SHA-256 `30c6cfa941ca5aa871085593f5b93b46ac6be9046666131d5069aa14a53f1c32`；便携包 SHA-256 `517744ad0222f458daed0c2c36b23c4e84038256a98df4999e777e8925390167`。便携 ZIP 共 9 个文件，`.env`、AI/画面/陪伴配置和临时文件命中数 0。
+
+## 2026-08-18 音乐全屏隐藏表面失效修复
+
+- 修改前完整备份：`D:\game creat\DesktopPet_backup_20260818-221021`（1848 个文件，130336055 bytes）。
+- 用户手动使用时仍可能只看到纯灰清屏色，而启动参数直达全屏能显示完整 UI。差异在于旧实现从桌宠启动开始就长期保留一个隐藏的原生 `Window/Viewport`；Godot 4.7.1 在部分 Windows 合成环境中会让该隐藏表面失效，之后 `show()` 只能显示清屏色。
+- `scripts/music_player_panel.gd` 改为完全按需创建沉浸窗口：用户点击全屏时才根据当前显示器位置与物理尺寸创建原生窗口和 `PetImmersiveMusicView`，退出时立即隐藏、释放窗口并清空引用。第二次进入会获得全新的 Window、Viewport 和 UI 树，不再复用可能失效的隐藏表面。
+- `tools/music_fullscreen_qa.gd` 增加真实使用时序：普通播放器先保持 2 秒且确认没有预建沉浸窗口，再进入全屏；退出后确认窗口已销毁；随后第二次进入并再次检查非单色像素内容。输出包含 `MUSIC_FULLSCREEN_REENTER_QA_OK fresh_window=true content_visible=true`。
+- 完整桌宠主场景再次通过桌面合成截图 `logs/music_fullscreen_lazy_main.png` 验证，`1920x1080` 画面包含封面框、歌词区、进度条、控制按钮、花朵与右上角退出键，任务栏和普通桌宠窗口未覆盖沉浸界面。本轮不需要重新生成 Meowa UI 素材。
+
+## 2026-08-18 音乐全屏视觉统一与退出兜底
+
+- 沿用本轮修改前备份：`D:\game creat\DesktopPet_backup_20260818-221021`（1848 个文件，130336055 bytes）。
+- 用户确认沉浸界面虽然能显示，但深色纯色底与普通播放器的奶油粉花边 UI 差异过大。`scripts/immersive_music_view.gd` 现直接将普通播放器使用的 `player_panel_clean.png` 铺为全屏皮肤，并按原图 `1678x951` 坐标比例放置封面、前景蝴蝶结与玫瑰、歌曲信息、五行歌词、可拖动进度条及同源图案控制按钮；不需要额外消耗 Meowa 额度。
+- 全屏右上角沿用底图自带的减号与关闭图案，两者都可返回普通窗口。`scripts/music_player_panel.gd` 同时监听专用原生窗口的键盘输入，`Esc`、`F11` 不再依赖子控件焦点；退出逻辑即使状态标记异常，只要专用窗口仍存在也会销毁窗口并恢复桌宠置顶。
+- `tools/music_fullscreen_qa.gd` 现在额外检查同款皮肤、奶油粉亮色调、右上角按钮范围，并以真实 `Esc` 事件和按钮事件分别退出两次进入的沉浸窗口。Godot 4.7.1 输出：`MUSIC_FULLSCREEN_QA_OK immersive_window_id=2 size=1920x1080 skin=player_panel controls_visible=true`、`MUSIC_FULLSCREEN_RESTORE_QA_OK size=820x465 position=40,40`、`MUSIC_FULLSCREEN_REENTER_QA_OK fresh_window=true content_visible=true`。
+- 正式 Release 已重建：安装器 SHA-256 `f3008e3c8b46d1598b67c74bd09da87e62c6ac91dc0b11022f3f0f9c96cf6997`；便携包 SHA-256 `9806db976f59a7b913108a6b963560db376040bef78eb66a26277f9e29006e13`。便携 ZIP 共 9 个文件，未包含 `.env` 或用户 AI、画面感知、陪伴、养成存档配置。
+
+## 2026-08-18 音乐全屏原生输入与窗口层级修复
+
+- 用户实机点击沉浸界面右上角减号和关闭图案没有反应，且全屏窗口永久压在其他软件上方。此前 QA 直接发射按钮 `pressed` 信号，未覆盖 Windows 鼠标事件进入原生窗口后的真实路由；专用窗口同时错误启用了 `always_on_top`。
+- 参考本地 Mineradio 将页面按钮动作交给原生窗口拥有者统一处理的方式，`scripts/music_player_panel.gd` 现在在 `ImmersiveMusicWindow.window_input` 层直接处理左键。命中右上角窗口控制区时立即退出，并同时比较 Godot 本地坐标和 Windows 物理鼠标坐标，避免 DPI 缩放导致贴图可见但热区错位。`scripts/immersive_music_view.gd` 的两个贴图按钮也改为按下即触发、明确拦截鼠标并置于最高 UI 层。
+- 沉浸窗口不再设置 `always_on_top`，创建和显示后均显式关闭 Windows 置顶标记；只在进入时聚焦一次。现在可用 `Alt+Tab`、任务栏或其他窗口正常切走，桌宠普通窗口的原有置顶状态仅在退出后恢复。
+- `tools/music_fullscreen_qa.gd` 不再直接发射按钮信号，而是通过原生 `Window.push_input` 发送真实左键事件到关闭热区，验证窗口销毁和普通播放器恢复；同时断言 `WINDOW_FLAG_ALWAYS_ON_TOP=false`。Godot 4.7.1 回归输出包含 `MUSIC_FULLSCREEN_RESTORE_QA_OK size=820x465 position=40,40 pointer_exit=true`。
+- 正式 Release 已重建：安装器 SHA-256 `939e22a35642e1ff8ed2c9072c0a303056eb83d45168e6cbf9685fef97b3b9bc`；便携包 SHA-256 `dd91aa549791623d473fab7cca829bdae8e8a89c5644947ebe2c4db09218e8c5`。

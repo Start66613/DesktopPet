@@ -13,6 +13,8 @@ func _init() -> void:
 	await process_frame
 	assert(panel.visible)
 	assert(panel.size == Vector2i(820, 465))
+	await create_timer(2.0).timeout
+	assert(not is_instance_valid(panel._immersive_window))
 	panel.enter_fullscreen()
 	for _frame in 12:
 		await process_frame
@@ -25,7 +27,8 @@ func _init() -> void:
 	assert(panel.is_fullscreen_active())
 	assert(actual == expected)
 	assert(panel._immersive_window.borderless)
-	assert(panel._immersive_window.always_on_top)
+	assert(not panel._immersive_window.always_on_top)
+	assert(not DisplayServer.window_get_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, immersive_window_id))
 	assert(panel.visible)
 	assert(panel.size == Vector2i(820, 465))
 	assert(panel.position == Vector2i(40, 40))
@@ -33,20 +36,46 @@ func _init() -> void:
 	assert(panel._immersive_view.visible)
 	assert(panel._immersive_view.size.x >= expected.x - 2)
 	assert(panel._immersive_view.size.y >= expected.y - 2)
+	assert(panel._immersive_view.uses_player_skin())
+	var exit_rect: Rect2 = panel._immersive_view.get_exit_button_rect()
+	assert(exit_rect.size.x >= float(expected.x) * 0.055 and exit_rect.size.y >= float(expected.y) * 0.09)
+	assert(exit_rect.end.x <= expected.x + 1 and exit_rect.end.y <= expected.y + 1)
 	var screenshot := panel._immersive_window.get_texture().get_image()
 	assert(screenshot and not screenshot.is_empty())
 	assert(_image_has_visible_content(screenshot))
+	assert(_image_has_player_palette(screenshot))
 	screenshot.save_png("res://logs/music_fullscreen_fixed_qa.png")
-	print("MUSIC_FULLSCREEN_QA_OK immersive_window_id=%d size=%dx%d player_covered=true content_visible=true button_visible=true" % [immersive_window_id, actual.x, actual.y])
-	panel._exit_fullscreen()
+	print("MUSIC_FULLSCREEN_QA_OK immersive_window_id=%d size=%dx%d skin=player_panel controls_visible=true" % [immersive_window_id, actual.x, actual.y])
+	var pointer_press := InputEventMouseButton.new()
+	pointer_press.button_index = MOUSE_BUTTON_LEFT
+	pointer_press.pressed = true
+	pointer_press.position = exit_rect.get_center()
+	panel._immersive_window.push_input(pointer_press, true)
 	for _frame in 4:
 		await process_frame
 	assert(not panel.is_fullscreen_active())
-	assert(not panel._immersive_window.visible)
+	assert(not is_instance_valid(panel._immersive_window))
 	assert(panel.visible)
 	assert(DisplayServer.window_get_size(panel.get_window_id()) == Vector2i(820, 465))
 	assert(DisplayServer.window_get_position(panel.get_window_id()) == Vector2i(40, 40))
-	print("MUSIC_FULLSCREEN_RESTORE_QA_OK size=820x465 position=40,40")
+	print("MUSIC_FULLSCREEN_RESTORE_QA_OK size=820x465 position=40,40 pointer_exit=true")
+	panel.enter_fullscreen()
+	for _frame in 12:
+		await process_frame
+	assert(panel.is_fullscreen_active())
+	assert(is_instance_valid(panel._immersive_window))
+	var second_image := panel._immersive_window.get_texture().get_image()
+	assert(second_image and not second_image.is_empty())
+	assert(_image_has_visible_content(second_image))
+	assert(_image_has_player_palette(second_image))
+	print("MUSIC_FULLSCREEN_REENTER_QA_OK fresh_window=true content_visible=true")
+	var escape := InputEventKey.new()
+	escape.keycode = KEY_ESCAPE
+	escape.pressed = true
+	panel._immersive_window.push_input(escape, true)
+	for _frame in 4:
+		await process_frame
+	assert(not is_instance_valid(panel._immersive_window))
 	panel.hide_panel()
 	quit(0)
 
@@ -62,3 +91,15 @@ func _image_has_visible_content(image: Image) -> bool:
 			if color_delta > 0.08:
 				return true
 	return false
+
+
+func _image_has_player_palette(image: Image) -> bool:
+	var light_samples := 0
+	for point in [Vector2(0.25, 0.5), Vector2(0.5, 0.5), Vector2(0.75, 0.5), Vector2(0.5, 0.72)]:
+		var pixel := image.get_pixel(
+			clampi(roundi(point.x * float(image.get_width() - 1)), 0, image.get_width() - 1),
+			clampi(roundi(point.y * float(image.get_height() - 1)), 0, image.get_height() - 1)
+		)
+		if pixel.r > 0.75 and pixel.g > 0.68 and pixel.b > 0.68:
+			light_samples += 1
+	return light_samples >= 3

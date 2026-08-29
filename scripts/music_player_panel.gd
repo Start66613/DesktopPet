@@ -298,13 +298,7 @@ func _build_ui() -> void:
 	_text_layer.add_child(_elapsed_label)
 	_text_layer.add_child(_duration_label)
 
-	# A root-level native window must be created after the main scene finishes
-	# adding children. Creating it here would make Windows inherit this panel's
-	# visibility, which is exactly what caused the blank fullscreen state.
-	call_deferred("_create_immersive_window")
-
-
-func _create_immersive_window() -> void:
+func _create_immersive_window(screen_position: Vector2i, screen_size: Vector2i) -> void:
 	if is_instance_valid(_immersive_window) or not is_inside_tree():
 		return
 	_immersive_window = Window.new()
@@ -314,11 +308,14 @@ func _create_immersive_window() -> void:
 	_immersive_window.borderless = true
 	_immersive_window.transparent_bg = false
 	_immersive_window.unresizable = false
-	_immersive_window.always_on_top = true
+	_immersive_window.always_on_top = false
 	_immersive_window.transient = false
 	_immersive_window.force_native = true
+	_immersive_window.position = screen_position
+	_immersive_window.size = screen_size
 	_immersive_window.close_requested.connect(_exit_fullscreen)
 	_immersive_window.size_changed.connect(_resize_immersive_view)
+	_immersive_window.window_input.connect(_on_immersive_window_input)
 
 	_immersive_view = ImmersiveMusicView.new()
 	_immersive_view.configure(_font)
@@ -754,11 +751,15 @@ func _enter_fullscreen() -> void:
 	if _fullscreen_active or _fullscreen_transitioning:
 		return
 	_fullscreen_transitioning = true
-	if not is_instance_valid(_immersive_window):
-		call_deferred("_create_immersive_window")
-		await get_tree().process_frame
-		if not _fullscreen_transitioning:
-			return
+	_fullscreen_screen = DisplayServer.window_get_current_screen(get_window_id())
+	if _fullscreen_screen < 0:
+		_fullscreen_screen = 0
+	var screen_position := DisplayServer.screen_get_position(_fullscreen_screen)
+	var screen_size := DisplayServer.screen_get_size(_fullscreen_screen)
+	_create_immersive_window(screen_position, screen_size)
+	await get_tree().process_frame
+	if not _fullscreen_transitioning:
+		return
 	if not is_instance_valid(_immersive_window) or not is_instance_valid(_immersive_view):
 		_fullscreen_transitioning = false
 		return
@@ -770,11 +771,6 @@ func _enter_fullscreen() -> void:
 		await get_tree().process_frame
 		if not _fullscreen_transitioning:
 			return
-	_fullscreen_screen = DisplayServer.window_get_current_screen(get_window_id())
-	if _fullscreen_screen < 0:
-		_fullscreen_screen = 0
-	var screen_position := DisplayServer.screen_get_position(_fullscreen_screen)
-	var screen_size := DisplayServer.screen_get_size(_fullscreen_screen)
 
 	# Keep the transparent player untouched. The immersive view owns a separate,
 	# non-transparent native window so Windows cannot leave the player half-switched.
@@ -792,7 +788,7 @@ func _enter_fullscreen() -> void:
 	if not _fullscreen_transitioning:
 		return
 	DisplayServer.window_set_current_screen(_fullscreen_screen, _immersive_window.get_window_id())
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, true, _immersive_window.get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, _immersive_window.get_window_id())
 	# Godot's Windows fullscreen mode can leave a hidden HWND in multi-window
 	# transparent apps. A topmost borderless window covering the physical screen
 	# is visually identical and keeps the native window actually visible.
@@ -821,13 +817,17 @@ func _enter_fullscreen() -> void:
 
 
 func _exit_fullscreen() -> void:
-	if not _fullscreen_active and not _fullscreen_transitioning:
+	if not _fullscreen_active and not _fullscreen_transitioning and not is_instance_valid(_immersive_window):
 		return
 	_fullscreen_active = false
 	_fullscreen_transitioning = false
-	if is_instance_valid(_immersive_window):
-		_immersive_window.mode = Window.MODE_WINDOWED
-		_immersive_window.hide()
+	var immersive_to_close := _immersive_window
+	_immersive_window = null
+	_immersive_view = null
+	if is_instance_valid(immersive_to_close):
+		immersive_to_close.mode = Window.MODE_WINDOWED
+		immersive_to_close.hide()
+		immersive_to_close.queue_free()
 	get_tree().root.always_on_top = _main_window_was_always_on_top
 	_fullscreen_button.visible = true
 	if _player_was_visible_before_fullscreen and not visible:
@@ -840,9 +840,23 @@ func _exit_fullscreen() -> void:
 	_main_window_was_always_on_top = false
 
 
+func _on_immersive_window_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_ESCAPE, KEY_F11]:
+		_exit_fullscreen()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		if not is_instance_valid(_immersive_window) or not is_instance_valid(_immersive_view):
+			return
+		var window_id := _immersive_window.get_window_id()
+		var physical_position := Vector2(DisplayServer.mouse_get_position() - DisplayServer.window_get_position(window_id))
+		if _immersive_view.is_window_control_position(event.position) or _immersive_view.is_window_control_position(physical_position):
+			_exit_fullscreen()
+
+
 func _exit_tree() -> void:
 	if is_instance_valid(_immersive_window) and _immersive_window.get_parent() != self:
 		_immersive_window.queue_free()
+	_immersive_window = null
+	_immersive_view = null
 
 
 func _resize_immersive_view() -> void:
@@ -856,6 +870,8 @@ func _resize_immersive_view() -> void:
 	else:
 		_immersive_view.call_deferred("_layout")
 func _immersive_window_fills_screen() -> bool:
+	if not is_instance_valid(_immersive_window):
+		return false
 	var expected := DisplayServer.screen_get_size(_fullscreen_screen)
 	var actual := DisplayServer.window_get_size(_immersive_window.get_window_id())
 	return actual.x >= expected.x - 2 and actual.y >= expected.y - 2
@@ -878,7 +894,7 @@ func enter_fullscreen() -> void:
 
 
 func show_listening_note(text: String, emoji: String = "🎵") -> void:
-	if _fullscreen_active and _immersive_view:
+	if _fullscreen_active and is_instance_valid(_immersive_view):
 		_immersive_view.show_companion_note(text, emoji)
 
 
@@ -908,12 +924,12 @@ func get_music_context() -> Dictionary:
 
 
 func _sync_immersive_session() -> void:
-	if _immersive_view:
+	if is_instance_valid(_immersive_view) and _immersive_view.is_node_ready():
 		_immersive_view.set_session(_session, _display_mode)
 
 
 func _sync_immersive_lyrics() -> void:
-	if _immersive_view:
+	if is_instance_valid(_immersive_view) and _immersive_view.is_node_ready():
 		_immersive_view.set_lyrics(_lyrics, _current_lyric_index, _lyrics_source_label.text if _lyrics_source_label else "")
 
 
