@@ -64,6 +64,7 @@ var _last_lyric_index := -1
 var _lyric_reaction_counter := 0
 var _last_track_id := ""
 var _last_playing := false
+var _native_seek_dragging := false
 var _session: Dictionary = {"found": false}
 
 
@@ -72,8 +73,14 @@ func configure(font: Font) -> void:
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	set_process_input(true)
 	_build_ui()
+	_companion_panel.visible = false
+	_companion_title.visible = false
+	_companion_note.visible = false
+	_companion_emoji.visible = false
+	_companion_sprite.visible = false
 	resized.connect(_layout)
 	_layout()
 
@@ -87,6 +94,46 @@ func _input(event: InputEvent) -> void:
 	elif event.keycode == KEY_SPACE:
 		play_pause_requested.emit()
 		get_viewport().set_input_as_handled()
+
+
+func handle_pointer_event(event: InputEvent, pointer_position: Vector2) -> bool:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			if _button_hit(_previous_button, pointer_position):
+				previous_requested.emit()
+				return true
+			if _button_hit(_play_pause_button, pointer_position):
+				play_pause_requested.emit()
+				return true
+			if _button_hit(_next_button, pointer_position):
+				next_requested.emit()
+				return true
+			if _button_hit(_mode_button, pointer_position):
+				mode_requested.emit()
+				return true
+			if _progress.get_global_rect().has_point(pointer_position):
+				_native_seek_dragging = true
+				_emit_native_seek(pointer_position)
+				return true
+		elif _native_seek_dragging:
+			_native_seek_dragging = false
+			_emit_native_seek(pointer_position)
+			return true
+	elif event is InputEventMouseMotion and _native_seek_dragging:
+		_emit_native_seek(pointer_position)
+		return true
+	return false
+
+
+func _button_hit(button: BaseButton, pointer_position: Vector2) -> bool:
+	return is_instance_valid(button) and not button.disabled and button.get_global_rect().has_point(pointer_position)
+
+
+func _emit_native_seek(pointer_position: Vector2) -> void:
+	var rect := _progress.get_global_rect()
+	if rect.size.x <= 0.0:
+		return
+	seek_requested.emit(clampf((pointer_position.x - rect.position.x) / rect.size.x, 0.0, 1.0))
 
 
 func set_cover(texture: Texture2D) -> void:
@@ -361,9 +408,9 @@ func _layout() -> void:
 
 	for row in _lyric_labels.size():
 		var label := _lyric_labels[row]
-		_set_control_rect(label, Rect2(645, 320 + row * 43, 810, 40))
+		_set_control_rect(label, Rect2(645, 330 + row * 58, 810, 52))
 		label.pivot_offset = label.size * 0.5
-	_set_control_rect(_lyrics_source_label, Rect2(1160, 520, 295, 24))
+	_set_control_rect(_lyrics_source_label, Rect2(1160, 630, 295, 24))
 
 	_set_control_rect(_companion_panel, Rect2(650, 555, 805, 124))
 	_set_control_rect(_companion_title, Rect2(700, 570, 520, 28))

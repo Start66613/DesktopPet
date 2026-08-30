@@ -7,6 +7,7 @@ const PANEL_SIZE := Vector2i(820, 465)
 const UI_SCALE := 820.0 / 1678.0
 const ProgressControl := preload("res://scripts/music_progress_control.gd")
 const ImmersiveMusicView := preload("res://scripts/immersive_music_view.gd")
+const MusicInfoService := preload("res://scripts/music_info_service.gd")
 const PREVIOUS_REGION := Rect2(423, 747, 135, 137)
 const PLAY_REGION := Rect2(592, 738, 195, 151)
 const PAUSE_REGION := Rect2(817, 746, 143, 139)
@@ -50,6 +51,8 @@ var _mode_badge: Label
 var _fullscreen_button: Button
 var _immersive_window: Window
 var _immersive_view: PetImmersiveMusicView
+var _music_info_service
+var _song_info: Dictionary = {}
 var _play_texture: AtlasTexture
 var _pause_texture: AtlasTexture
 var _shuffle_texture: AtlasTexture
@@ -96,8 +99,12 @@ func configure(font: Font, monitor: PetMusicSessionMonitor, lyrics_service: PetM
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	close_requested.connect(hide_panel)
 	_build_ui()
+	_music_info_service = MusicInfoService.new()
+	_music_info_service.info_ready.connect(_on_song_info_ready)
+	add_child(_music_info_service)
 	if _monitor:
 		_monitor.session_updated.connect(_on_session_updated)
 		_monitor.track_changed.connect(_on_track_changed)
@@ -302,6 +309,7 @@ func _create_immersive_window(screen_position: Vector2i, screen_size: Vector2i) 
 	if is_instance_valid(_immersive_window) or not is_inside_tree():
 		return
 	_immersive_window = Window.new()
+	_immersive_window.process_mode = Node.PROCESS_MODE_ALWAYS
 	_immersive_window.name = "ImmersiveMusicWindow"
 	_immersive_window.title = "音乐中心 - 沉浸模式"
 	_immersive_window.visible = false
@@ -464,6 +472,7 @@ func _on_session_updated(info: Dictionary) -> void:
 
 func _on_track_changed(info: Dictionary) -> void:
 	_session = info.duplicate(true)
+	_song_info.clear()
 	_lyrics.clear()
 	_lyrics_track_id = String(info.get("track_id", ""))
 	_current_lyric_index = -1
@@ -472,6 +481,14 @@ func _on_track_changed(info: Dictionary) -> void:
 	_load_cover()
 	if _lyrics_service:
 		_lyrics_service.request_lyrics(info)
+	if _music_info_service:
+		_music_info_service.request_info(info)
+
+
+func _on_song_info_ready(track_id: String, info: Dictionary) -> void:
+	if track_id != String(_session.get("track_id", "")):
+		return
+	_song_info = info.duplicate(true)
 
 
 func _on_lyrics_ready(track_id: String, lines: Array[Dictionary], source: String) -> void:
@@ -766,7 +783,7 @@ func _enter_fullscreen() -> void:
 	_player_was_visible_before_fullscreen = visible
 	var main_window := get_tree().root
 	_main_window_was_always_on_top = main_window.always_on_top
-	main_window.always_on_top = false
+	main_window.always_on_top = true
 	if not _immersive_view.is_node_ready():
 		await get_tree().process_frame
 		if not _fullscreen_transitioning:
@@ -789,6 +806,8 @@ func _enter_fullscreen() -> void:
 		return
 	DisplayServer.window_set_current_screen(_fullscreen_screen, _immersive_window.get_window_id())
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, _immersive_window.get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, _immersive_window.get_window_id())
+	DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), _immersive_window.get_window_id())
 	# Godot's Windows fullscreen mode can leave a hidden HWND in multi-window
 	# transparent apps. A topmost borderless window covering the physical screen
 	# is visually identical and keeps the native window actually visible.
@@ -810,10 +829,13 @@ func _enter_fullscreen() -> void:
 		return
 
 	_fullscreen_active = true
-	_immersive_view.show_companion_note("把音乐铺满整个房间吧，我陪你一起听。", "🎧")
 	_fullscreen_transitioning = false
 	DisplayServer.window_move_to_foreground(_immersive_window.get_window_id())
 	_immersive_window.grab_focus()
+	if _player_was_visible_before_fullscreen:
+		hide()
+	main_window.always_on_top = true
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, true, main_window.get_window_id())
 
 
 func _exit_fullscreen() -> void:
@@ -843,13 +865,17 @@ func _exit_fullscreen() -> void:
 func _on_immersive_window_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_ESCAPE, KEY_F11]:
 		_exit_fullscreen()
-	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+	elif event is InputEventMouseButton or event is InputEventMouseMotion:
 		if not is_instance_valid(_immersive_window) or not is_instance_valid(_immersive_view):
 			return
 		var window_id := _immersive_window.get_window_id()
 		var physical_position := Vector2(DisplayServer.mouse_get_position() - DisplayServer.window_get_position(window_id))
-		if _immersive_view.is_window_control_position(event.position) or _immersive_view.is_window_control_position(physical_position):
+		var event_position: Vector2 = event.position
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed \
+			and (_immersive_view.is_window_control_position(event_position) or _immersive_view.is_window_control_position(physical_position)):
 			_exit_fullscreen()
+		elif _immersive_view.handle_pointer_event(event, event_position):
+			_immersive_window.set_input_as_handled()
 
 
 func _exit_tree() -> void:
@@ -893,11 +919,6 @@ func enter_fullscreen() -> void:
 	_enter_fullscreen()
 
 
-func show_listening_note(text: String, emoji: String = "🎵") -> void:
-	if _fullscreen_active and is_instance_valid(_immersive_view):
-		_immersive_view.show_companion_note(text, emoji)
-
-
 func get_music_context() -> Dictionary:
 	var current_text := ""
 	var previous_text := ""
@@ -919,6 +940,7 @@ func get_music_context() -> Dictionary:
 		"previous_lyric": previous_text,
 		"current_lyric": current_text,
 		"next_lyric": next_text,
+		"song_info": _song_info.duplicate(true),
 		"fullscreen": _fullscreen_active
 	}
 

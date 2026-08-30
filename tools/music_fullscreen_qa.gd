@@ -29,7 +29,8 @@ func _init() -> void:
 	assert(panel._immersive_window.borderless)
 	assert(not panel._immersive_window.always_on_top)
 	assert(not DisplayServer.window_get_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, immersive_window_id))
-	assert(panel.visible)
+	assert(not DisplayServer.window_get_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, immersive_window_id))
+	assert(not panel.visible)
 	assert(panel.size == Vector2i(820, 465))
 	assert(panel.position == Vector2i(40, 40))
 	assert(panel.is_fullscreen_button_visible())
@@ -37,8 +38,20 @@ func _init() -> void:
 	assert(panel._immersive_view.size.x >= expected.x - 2)
 	assert(panel._immersive_view.size.y >= expected.y - 2)
 	assert(panel._immersive_view.uses_player_skin())
-	assert(panel._immersive_view.has_visible_companion())
-	assert(not panel._immersive_view.get_companion_note_text().is_empty())
+	assert(not panel._immersive_view.has_visible_companion())
+	assert(root.always_on_top)
+	panel._immersive_view.set_session({"found": true, "track_id": "qa-track", "title": "测试歌曲", "artist": "测试歌手", "playback_status": "playing", "can_previous": true, "can_next": true}, "list")
+	panel._immersive_view.set_lyrics([{"text": "上一句"}, {"text": "正在播放的歌词"}, {"text": "下一句"}], 1, "测试歌词")
+	var native_events := {"previous": 0}
+	panel._immersive_view.previous_requested.connect(func() -> void: native_events["previous"] = int(native_events["previous"]) + 1)
+	var previous_press := InputEventMouseButton.new()
+	previous_press.button_index = MOUSE_BUTTON_LEFT
+	previous_press.pressed = true
+	previous_press.position = panel._immersive_view._previous_button.get_global_rect().get_center()
+	panel._immersive_window.push_input(previous_press, true)
+	for _input_frame in 2:
+		await process_frame
+	assert(int(native_events["previous"]) == 1)
 	var exit_rect: Rect2 = panel._immersive_view.get_exit_button_rect()
 	assert(exit_rect.size.x >= float(expected.x) * 0.055 and exit_rect.size.y >= float(expected.y) * 0.09)
 	assert(exit_rect.end.x <= expected.x + 1 and exit_rect.end.y <= expected.y + 1)
