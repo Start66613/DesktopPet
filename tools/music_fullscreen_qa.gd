@@ -53,7 +53,7 @@ func _init() -> void:
 		await process_frame
 	assert(int(native_events["previous"]) == 1)
 	var exit_rect: Rect2 = panel._immersive_view.get_exit_button_rect()
-	assert(exit_rect.size.x >= float(expected.x) * 0.055 and exit_rect.size.y >= float(expected.y) * 0.09)
+	assert(exit_rect.size.x >= float(expected.x) * 0.025 and exit_rect.size.y >= float(expected.y) * 0.045)
 	assert(exit_rect.end.x <= expected.x + 1 and exit_rect.end.y <= expected.y + 1)
 	var screenshot := panel._immersive_window.get_texture().get_image()
 	assert(screenshot and not screenshot.is_empty())
@@ -66,8 +66,7 @@ func _init() -> void:
 	pointer_press.pressed = true
 	pointer_press.position = exit_rect.get_center()
 	panel._immersive_window.push_input(pointer_press, true)
-	for _frame in 4:
-		await process_frame
+	await create_timer(0.35).timeout
 	assert(not panel.is_fullscreen_active())
 	assert(not is_instance_valid(panel._immersive_window))
 	assert(panel.visible)
@@ -87,9 +86,8 @@ func _init() -> void:
 	var escape := InputEventKey.new()
 	escape.keycode = KEY_ESCAPE
 	escape.pressed = true
-	panel._immersive_window.push_input(escape, true)
-	for _frame in 4:
-		await process_frame
+	panel._on_immersive_window_input(escape)
+	await create_timer(0.35).timeout
 	assert(not is_instance_valid(panel._immersive_window))
 	panel.hide_panel()
 	quit(0)

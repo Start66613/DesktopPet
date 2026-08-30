@@ -75,6 +75,9 @@ var _play_state_initialized := false
 var _displayed_playing := false
 var _fullscreen_active := false
 var _fullscreen_transitioning := false
+var _fullscreen_closing := false
+var _fullscreen_escape_was_pressed := false
+var _fullscreen_f11_was_pressed := false
 var _fullscreen_screen := 0
 var _player_was_visible_before_fullscreen := false
 var _main_window_was_always_on_top := false
@@ -116,6 +119,12 @@ func _ready() -> void:
 
 
 func _process(_delta: float) -> void:
+	var escape_pressed := Input.is_key_pressed(KEY_ESCAPE)
+	var f11_pressed := Input.is_key_pressed(KEY_F11)
+	if _fullscreen_active and ((escape_pressed and not _fullscreen_escape_was_pressed) or (f11_pressed and not _fullscreen_f11_was_pressed)):
+		_exit_fullscreen()
+	_fullscreen_escape_was_pressed = escape_pressed
+	_fullscreen_f11_was_pressed = f11_pressed
 	if not _monitor:
 		return
 	_session = _monitor.get_session()
@@ -336,6 +345,7 @@ func _create_immersive_window(screen_position: Vector2i, screen_size: Vector2i) 
 	_immersive_view.seek_requested.connect(_on_seek_requested)
 	_immersive_window.add_child(_immersive_view)
 	get_tree().root.add_child(_immersive_window)
+	_immersive_view.set_native_window_id(_immersive_window.get_window_id())
 	_resize_immersive_view()
 
 
@@ -765,7 +775,7 @@ func _on_drag_handle_gui_input(event: InputEvent) -> void:
 
 
 func _enter_fullscreen() -> void:
-	if _fullscreen_active or _fullscreen_transitioning:
+	if _fullscreen_active or _fullscreen_transitioning or _fullscreen_closing:
 		return
 	_fullscreen_transitioning = true
 	_fullscreen_screen = DisplayServer.window_get_current_screen(get_window_id())
@@ -801,6 +811,7 @@ func _enter_fullscreen() -> void:
 	if _cover and _cover.texture:
 		_immersive_view.set_cover(_cover.texture)
 	_immersive_window.show()
+	_immersive_view.play_enter_transition()
 	await get_tree().process_frame
 	if not _fullscreen_transitioning:
 		return
@@ -839,11 +850,17 @@ func _enter_fullscreen() -> void:
 
 
 func _exit_fullscreen() -> void:
+	if _fullscreen_closing:
+		return
 	if not _fullscreen_active and not _fullscreen_transitioning and not is_instance_valid(_immersive_window):
 		return
+	_fullscreen_closing = true
 	_fullscreen_active = false
-	_fullscreen_transitioning = false
+	_fullscreen_transitioning = true
 	var immersive_to_close := _immersive_window
+	var immersive_view_to_close := _immersive_view
+	if is_instance_valid(immersive_view_to_close) and immersive_view_to_close.is_inside_tree():
+		await immersive_view_to_close.play_exit_transition()
 	_immersive_window = null
 	_immersive_view = null
 	if is_instance_valid(immersive_to_close):
@@ -860,7 +877,8 @@ func _exit_fullscreen() -> void:
 		grab_focus()
 	_player_was_visible_before_fullscreen = false
 	_main_window_was_always_on_top = false
-
+	_fullscreen_transitioning = false
+	_fullscreen_closing = false
 
 func _on_immersive_window_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_ESCAPE, KEY_F11]:
@@ -868,15 +886,9 @@ func _on_immersive_window_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton or event is InputEventMouseMotion:
 		if not is_instance_valid(_immersive_window) or not is_instance_valid(_immersive_view):
 			return
-		var window_id := _immersive_window.get_window_id()
-		var physical_position := Vector2(DisplayServer.mouse_get_position() - DisplayServer.window_get_position(window_id))
-		var event_position: Vector2 = event.position
-		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed \
-			and (_immersive_view.is_window_control_position(event_position) or _immersive_view.is_window_control_position(physical_position)):
-			_exit_fullscreen()
-		elif _immersive_view.handle_pointer_event(event, event_position):
+		var pointer_position := _immersive_view.get_native_pointer_position()
+		if _immersive_view.handle_pointer_event(event, pointer_position):
 			_immersive_window.set_input_as_handled()
-
 
 func _exit_tree() -> void:
 	if is_instance_valid(_immersive_window) and _immersive_window.get_parent() != self:

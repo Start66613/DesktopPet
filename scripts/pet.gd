@@ -485,9 +485,6 @@ func _on_ai_assistant_replied(text: String) -> void:
 func _on_proactive_message(text: String, emoji: String) -> void:
 	if _scripted_dialogue_time_left > 0.0:
 		return
-	if _music_player_panel and _music_player_panel.is_fullscreen_active():
-		_music_player_panel.show_listening_note(text, emoji)
-		return
 	_show_bubble(text, 8.0, emoji)
 
 
@@ -581,7 +578,8 @@ func _update_music_runtime(delta: float) -> void:
 		_music_reflection_time_left -= delta
 		if _music_reflection_time_left <= 0.0:
 			_music_reflection_time_left = _rng.randf_range(45.0, 75.0)
-			_show_music_companion_beat()
+			if _proactive_companion:
+				_proactive_companion.request_music_thought_now()
 	if _music_activity_live and not playing:
 		_music_activity_live = false
 		if _active_activity == MUSIC_ANIMATION:

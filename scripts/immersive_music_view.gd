@@ -10,7 +10,7 @@ signal seek_requested(ratio: float)
 
 const UI_DIR := "res://assets/music/runtime/ui"
 const ProgressControl := preload("res://scripts/music_progress_control.gd")
-const BASE_SIZE := Vector2(1678, 951)
+const BASE_SIZE := Vector2(1672, 941)
 const PREVIOUS_REGION := Rect2(423, 747, 135, 137)
 const PLAY_REGION := Rect2(592, 738, 195, 151)
 const PAUSE_REGION := Rect2(817, 746, 143, 139)
@@ -46,8 +46,8 @@ var _play_pause_button: TextureButton
 var _next_button: TextureButton
 var _mode_button: TextureButton
 var _mode_badge: Label
-var _minimize_button: TextureButton
-var _exit_button: TextureButton
+var _minimize_button: BaseButton
+var _exit_button: BaseButton
 var _companion_panel: Panel
 var _companion_title: Label
 var _companion_note: Label
@@ -65,6 +65,12 @@ var _lyric_reaction_counter := 0
 var _last_track_id := ""
 var _last_playing := false
 var _native_seek_dragging := false
+var _native_window_id := DisplayServer.INVALID_WINDOW_ID
+var _mouse_was_pressed := false
+var _escape_was_pressed := false
+var _f11_was_pressed := false
+var _last_action := ""
+var _last_action_at_ms := 0
 var _session: Dictionary = {"found": false}
 
 
@@ -75,6 +81,7 @@ func configure(font: Font) -> void:
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	set_process_input(true)
+	set_process(true)
 	_build_ui()
 	_companion_panel.visible = false
 	_companion_title.visible = false
@@ -85,36 +92,57 @@ func _ready() -> void:
 	_layout()
 
 
+func set_native_window_id(window_id: int) -> void:
+	_native_window_id = window_id
+
+
+func _process(_delta: float) -> void:
+	if not visible or _native_window_id == DisplayServer.INVALID_WINDOW_ID:
+		return
+	var escape_pressed := Input.is_key_pressed(KEY_ESCAPE)
+	var f11_pressed := Input.is_key_pressed(KEY_F11)
+	if (escape_pressed and not _escape_was_pressed) or (f11_pressed and not _f11_was_pressed):
+		_emit_action("exit")
+	_escape_was_pressed = escape_pressed
+	_f11_was_pressed = f11_pressed
+
+	var mouse_pressed := Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
+	var pointer := get_native_pointer_position()
+	if mouse_pressed and not _mouse_was_pressed:
+		_dispatch_pointer_press(pointer)
+	elif mouse_pressed and _native_seek_dragging:
+		_emit_native_seek(pointer)
+	elif not mouse_pressed and _mouse_was_pressed and _native_seek_dragging:
+		_native_seek_dragging = false
+		_emit_native_seek(pointer)
+	_mouse_was_pressed = mouse_pressed
+
+
+func get_native_pointer_position() -> Vector2:
+	if _native_window_id == DisplayServer.INVALID_WINDOW_ID:
+		return Vector2.ZERO
+	var raw := Vector2(DisplayServer.mouse_get_position() - DisplayServer.window_get_position(_native_window_id))
+	var window_size := Vector2(DisplayServer.window_get_size(_native_window_id))
+	if window_size.x <= 0.0 or window_size.y <= 0.0:
+		return raw
+	return Vector2(raw.x * size.x / window_size.x, raw.y * size.y / window_size.y)
+
+
 func _input(event: InputEvent) -> void:
 	if not visible or not event is InputEventKey or not event.pressed or event.echo:
 		return
 	if event.keycode in [KEY_ESCAPE, KEY_F11]:
-		exit_requested.emit()
+		_emit_action("exit")
 		get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_SPACE:
-		play_pause_requested.emit()
+		_emit_action("play_pause")
 		get_viewport().set_input_as_handled()
 
 
 func handle_pointer_event(event: InputEvent, pointer_position: Vector2) -> bool:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
-			if _button_hit(_previous_button, pointer_position):
-				previous_requested.emit()
-				return true
-			if _button_hit(_play_pause_button, pointer_position):
-				play_pause_requested.emit()
-				return true
-			if _button_hit(_next_button, pointer_position):
-				next_requested.emit()
-				return true
-			if _button_hit(_mode_button, pointer_position):
-				mode_requested.emit()
-				return true
-			if _progress.get_global_rect().has_point(pointer_position):
-				_native_seek_dragging = true
-				_emit_native_seek(pointer_position)
-				return true
+			return _dispatch_pointer_press(pointer_position)
 		elif _native_seek_dragging:
 			_native_seek_dragging = false
 			_emit_native_seek(pointer_position)
@@ -124,6 +152,47 @@ func handle_pointer_event(event: InputEvent, pointer_position: Vector2) -> bool:
 		return true
 	return false
 
+
+func _dispatch_pointer_press(pointer_position: Vector2) -> bool:
+	if _button_hit(_minimize_button, pointer_position) or _button_hit(_exit_button, pointer_position):
+		_emit_action("exit")
+		return true
+	if _button_hit(_previous_button, pointer_position):
+		_emit_action("previous")
+		return true
+	if _button_hit(_play_pause_button, pointer_position):
+		_emit_action("play_pause")
+		return true
+	if _button_hit(_next_button, pointer_position):
+		_emit_action("next")
+		return true
+	if _button_hit(_mode_button, pointer_position):
+		_emit_action("mode")
+		return true
+	if _progress.get_global_rect().has_point(pointer_position):
+		_native_seek_dragging = true
+		_emit_native_seek(pointer_position)
+		return true
+	return false
+
+
+func _emit_action(action: String) -> void:
+	var now := Time.get_ticks_msec()
+	if action == _last_action and now - _last_action_at_ms < 140:
+		return
+	_last_action = action
+	_last_action_at_ms = now
+	match action:
+		"exit":
+			exit_requested.emit()
+		"previous":
+			previous_requested.emit()
+		"play_pause":
+			play_pause_requested.emit()
+		"next":
+			next_requested.emit()
+		"mode":
+			mode_requested.emit()
 
 func _button_hit(button: BaseButton, pointer_position: Vector2) -> bool:
 	return is_instance_valid(button) and not button.disabled and button.get_global_rect().has_point(pointer_position)
@@ -239,7 +308,7 @@ func _build_ui() -> void:
 
 	_skin = TextureRect.new()
 	_skin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_skin.texture = load(UI_DIR + "/player_panel_clean.png") as Texture2D
+	_skin.texture = load(UI_DIR + "/music_fullscreen_bg_v2.png") as Texture2D
 	_skin.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_skin.stretch_mode = TextureRect.STRETCH_SCALE
 	_skin.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
@@ -313,17 +382,17 @@ func _build_ui() -> void:
 	add_child(_duration_label)
 
 	_previous_button = _make_atlas_button(PREVIOUS_REGION, "上一首")
-	_previous_button.pressed.connect(func() -> void: previous_requested.emit())
+	_previous_button.pressed.connect(_emit_action.bind("previous"))
 	_play_texture = _make_atlas_texture(PLAY_REGION)
 	_pause_texture = _make_atlas_texture(PAUSE_REGION)
 	_play_pause_button = _make_atlas_button(PLAY_REGION, "播放")
-	_play_pause_button.pressed.connect(func() -> void: play_pause_requested.emit())
+	_play_pause_button.pressed.connect(_emit_action.bind("play_pause"))
 	_next_button = _make_atlas_button(NEXT_REGION, "下一首")
-	_next_button.pressed.connect(func() -> void: next_requested.emit())
+	_next_button.pressed.connect(_emit_action.bind("next"))
 	_shuffle_texture = _make_atlas_texture(SHUFFLE_REGION)
 	_repeat_texture = _make_atlas_texture(REPEAT_REGION)
 	_mode_button = _make_atlas_button(REPEAT_REGION, "播放顺序")
-	_mode_button.pressed.connect(func() -> void: mode_requested.emit())
+	_mode_button.pressed.connect(_emit_action.bind("mode"))
 	add_child(_previous_button)
 	add_child(_play_pause_button)
 	add_child(_next_button)
@@ -332,11 +401,11 @@ func _build_ui() -> void:
 	_mode_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_mode_button.add_child(_mode_badge)
 
-	_minimize_button = _make_atlas_button(MINIMIZE_RECT, "返回窗口")
-	_minimize_button.pressed.connect(func() -> void: exit_requested.emit())
+	_minimize_button = _make_symbol_button("⌄", "返回窗口")
+	_minimize_button.pressed.connect(_emit_action.bind("exit"))
 	add_child(_minimize_button)
-	_exit_button = _make_atlas_button(EXIT_RECT, "退出全屏（Esc / F11）")
-	_exit_button.pressed.connect(func() -> void: exit_requested.emit())
+	_exit_button = _make_symbol_button("×", "退出全屏（Esc / F11）")
+	_exit_button.pressed.connect(_emit_action.bind("exit"))
 	add_child(_exit_button)
 
 	_companion_panel = Panel.new()
@@ -381,10 +450,10 @@ func get_companion_note_text() -> String:
 func _layout() -> void:
 	if not is_inside_tree() or not is_instance_valid(_cover_frame):
 		return
-	_set_control_rect(_content_wash, Rect2(72, 145, 1534, 745))
-	_set_control_rect(_column_divider, Rect2(600, 205, 2, 475))
+	_content_wash.visible = false
+	_column_divider.visible = false
 
-	var cover_frame_rect := _scaled_rect(Rect2(155, 225, 390, 390))
+	var cover_frame_rect := _scaled_rect(Rect2(135, 160, 475, 420))
 	_cover_frame.position = cover_frame_rect.position
 	_cover_frame.size = cover_frame_rect.size
 	var cover_inset := _scaled_vector(Vector2(4, 4))
@@ -393,24 +462,23 @@ func _layout() -> void:
 	_cover.pivot_offset = _cover.size * 0.5
 	if _cover.material:
 		_cover.material.set_shader_parameter("rect_size", _cover.size)
-		_cover.material.set_shader_parameter("corner_radius", 18.0 * minf(size.x / BASE_SIZE.x, size.y / BASE_SIZE.y))
+		_cover.material.set_shader_parameter("corner_radius", 42.0 * minf(size.x / BASE_SIZE.x, size.y / BASE_SIZE.y))
 
-	_set_control_rect(_cover_decorations[0], Rect2(128, 556, 123, 96))
-	_set_control_rect(_cover_decorations[1], Rect2(449, 556, 123, 96))
-	_set_control_rect(_cover_decorations[2], Rect2(242, 520, 217, 168))
-	_set_control_rect(_source_label, Rect2(650, 165, 805, 32))
-	_set_control_rect(_title_label, Rect2(650, 198, 805, 54))
+	for decoration in _cover_decorations:
+		decoration.visible = false
+	_set_control_rect(_source_label, Rect2(785, 104, 680, 30))
+	_set_control_rect(_title_label, Rect2(135, 590, 475, 48))
 	_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_set_control_rect(_artist_label, Rect2(650, 248, 805, 34))
+	_set_control_rect(_artist_label, Rect2(135, 638, 475, 32))
 	_artist_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_set_control_rect(_album_label, Rect2(650, 278, 805, 28))
+	_set_control_rect(_album_label, Rect2(135, 670, 475, 26))
 	_album_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	for row in _lyric_labels.size():
 		var label := _lyric_labels[row]
-		_set_control_rect(label, Rect2(645, 330 + row * 58, 810, 52))
+		_set_control_rect(label, Rect2(770, 185 + row * 78, 710, 62))
 		label.pivot_offset = label.size * 0.5
-	_set_control_rect(_lyrics_source_label, Rect2(1160, 630, 295, 24))
+	_set_control_rect(_lyrics_source_label, Rect2(1170, 610, 295, 24))
 
 	_set_control_rect(_companion_panel, Rect2(650, 555, 805, 124))
 	_set_control_rect(_companion_title, Rect2(700, 570, 520, 28))
@@ -420,20 +488,30 @@ func _layout() -> void:
 	_companion_sprite.position = _scaled_vector(Vector2(1370, 617))
 	_companion_sprite.scale = Vector2.ONE * companion_scale * 0.42
 
-	_set_control_rect(_progress, Rect2(240, 700, 1138, 48))
-	_set_control_rect(_elapsed_label, Rect2(250, 738, 100, 26))
-	_set_control_rect(_duration_label, Rect2(1280, 738, 90, 26))
+	_set_control_rect(_progress, Rect2(275, 756, 1122, 44))
+	_set_control_rect(_elapsed_label, Rect2(285, 790, 100, 26))
+	_set_control_rect(_duration_label, Rect2(1297, 790, 90, 26))
 
-	_set_control_rect(_previous_button, PREVIOUS_RECT)
-	_set_control_rect(_play_pause_button, PLAY_PAUSE_RECT)
-	_set_control_rect(_next_button, NEXT_RECT)
-	_set_control_rect(_mode_button, MODE_RECT)
+	_set_control_rect(_previous_button, Rect2(617, 820, 74, 74))
+	_set_control_rect(_play_pause_button, Rect2(742, 807, 98, 88))
+	_set_control_rect(_next_button, Rect2(891, 820, 74, 74))
+	_set_control_rect(_mode_button, Rect2(1060, 826, 62, 62))
 	_mode_badge.position = Vector2(_mode_button.size.x * 0.56, 0)
 	_mode_badge.size = Vector2(_mode_button.size.x * 0.38, _mode_button.size.y * 0.4)
-	_set_control_rect(_minimize_button, MINIMIZE_RECT)
-	_set_control_rect(_exit_button, EXIT_RECT)
+	_set_control_rect(_minimize_button, Rect2(1515, 25, 56, 56))
+	_set_control_rect(_exit_button, Rect2(1588, 25, 56, 56))
 
 
+func play_enter_transition() -> void:
+	modulate.a = 0.0
+	var tween := create_tween()
+	tween.tween_property(self, "modulate:a", 1.0, 0.24).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+
+
+func play_exit_transition() -> void:
+	var tween := create_tween()
+	tween.tween_property(self, "modulate:a", 0.0, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	await tween.finished
 
 func _make_label(text_value: String, font_size: int, color: Color, alignment: HorizontalAlignment) -> Label:
 	var label := Label.new()
@@ -459,6 +537,34 @@ func _make_atlas_button(region: Rect2, tooltip: String) -> TextureButton:
 	button.z_index = 100
 	button.tooltip_text = tooltip
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.mouse_entered.connect(_animate_control.bind(button, true))
+	button.mouse_exited.connect(_animate_control.bind(button, false))
+	return button
+
+
+func _make_symbol_button(symbol: String, tooltip: String) -> Button:
+	var button := Button.new()
+	button.text = symbol
+	button.tooltip_text = tooltip
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
+	button.z_index = 110
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.add_theme_font_size_override("font_size", 32)
+	button.add_theme_color_override("font_color", Color("9f6874"))
+	button.add_theme_color_override("font_hover_color", Color("714a56"))
+	var normal := StyleBoxFlat.new()
+	normal.bg_color = Color(1.0, 0.96, 0.95, 0.72)
+	normal.border_color = Color("e7c2c0")
+	normal.set_border_width_all(1)
+	normal.set_corner_radius_all(8)
+	var hover := normal.duplicate() as StyleBoxFlat
+	hover.bg_color = Color(1.0, 0.92, 0.93, 0.96)
+	button.add_theme_stylebox_override("normal", normal)
+	button.add_theme_stylebox_override("hover", hover)
+	button.add_theme_stylebox_override("pressed", hover)
+	button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	button.mouse_entered.connect(_animate_control.bind(button, true))
 	button.mouse_exited.connect(_animate_control.bind(button, false))
 	return button
