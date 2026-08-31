@@ -391,6 +391,7 @@ func _create_care_features() -> void:
 	_music_player_panel = MusicPlayerPanel.new()
 	_music_player_panel.name = "MusicPlayerPanel"
 	_music_player_panel.configure(_cjk_font, _music_session_monitor, _music_lyrics_service)
+	_music_player_panel.windowed_restore_requested.connect(_on_music_windowed_restore_requested)
 	add_child(_music_player_panel)
 
 	_screen_awareness_service = ScreenAwarenessService.new()
@@ -1147,6 +1148,21 @@ func _open_music_player() -> void:
 	panel_x = clampi(panel_x, usable.position.x, usable.end.x - panel_size.x)
 	var panel_y := clampi(pet_position.y - 70, usable.position.y, usable.end.y - panel_size.y)
 	_music_player_panel.open_at(Vector2i(panel_x, panel_y))
+
+
+func _on_music_windowed_restore_requested(window_position: Vector2i) -> void:
+	call_deferred("_recreate_music_player_after_fullscreen", window_position)
+
+
+func _recreate_music_player_after_fullscreen(window_position: Vector2i) -> void:
+	if is_instance_valid(_music_player_panel):
+		_music_player_panel.queue_free()
+	_music_player_panel = MusicPlayerPanel.new()
+	_music_player_panel.name = "MusicPlayerPanel"
+	_music_player_panel.configure(_cjk_font, _music_session_monitor, _music_lyrics_service)
+	_music_player_panel.windowed_restore_requested.connect(_on_music_windowed_restore_requested)
+	add_child(_music_player_panel)
+	_music_player_panel.open_at(window_position)
 
 
 func _debug_open_music_fullscreen() -> void:
