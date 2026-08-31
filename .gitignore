@@ -37,6 +37,7 @@ logs/
 .history-rebuild/
 .history-rebuild-git/
 .git-before-history/
+.git-before-history-*/
 *.log
 tools/*.exe
 tools/*.pdb
