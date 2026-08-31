@@ -308,7 +308,7 @@ func _build_ui() -> void:
 
 	_skin = TextureRect.new()
 	_skin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_skin.texture = load(UI_DIR + "/music_fullscreen_bg_v2.png") as Texture2D
+	_skin.texture = load(UI_DIR + "/music_fullscreen_bg_v3.png") as Texture2D
 	_skin.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_skin.stretch_mode = TextureRect.STRETCH_SCALE
 	_skin.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
@@ -401,10 +401,10 @@ func _build_ui() -> void:
 	_mode_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_mode_button.add_child(_mode_badge)
 
-	_minimize_button = _make_symbol_button("⌄", "返回窗口")
+	_minimize_button = _make_window_button("minimize.png", "返回窗口")
 	_minimize_button.pressed.connect(_emit_action.bind("exit"))
 	add_child(_minimize_button)
-	_exit_button = _make_symbol_button("×", "退出全屏（Esc / F11）")
+	_exit_button = _make_window_button("close.png", "退出全屏（Esc / F11）")
 	_exit_button.pressed.connect(_emit_action.bind("exit"))
 	add_child(_exit_button)
 
@@ -542,29 +542,18 @@ func _make_atlas_button(region: Rect2, tooltip: String) -> TextureButton:
 	return button
 
 
-func _make_symbol_button(symbol: String, tooltip: String) -> Button:
-	var button := Button.new()
-	button.text = symbol
+func _make_window_button(texture_name: String, tooltip: String) -> TextureButton:
+	var button := TextureButton.new()
+	button.texture_normal = load(UI_DIR + "/" + texture_name) as Texture2D
+	button.ignore_texture_size = true
+	button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+	button.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	button.tooltip_text = tooltip
 	button.focus_mode = Control.FOCUS_NONE
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
 	button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 	button.z_index = 110
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	button.add_theme_font_size_override("font_size", 32)
-	button.add_theme_color_override("font_color", Color("9f6874"))
-	button.add_theme_color_override("font_hover_color", Color("714a56"))
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(1.0, 0.96, 0.95, 0.72)
-	normal.border_color = Color("e7c2c0")
-	normal.set_border_width_all(1)
-	normal.set_corner_radius_all(8)
-	var hover := normal.duplicate() as StyleBoxFlat
-	hover.bg_color = Color(1.0, 0.92, 0.93, 0.96)
-	button.add_theme_stylebox_override("normal", normal)
-	button.add_theme_stylebox_override("hover", hover)
-	button.add_theme_stylebox_override("pressed", hover)
-	button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
 	button.mouse_entered.connect(_animate_control.bind(button, true))
 	button.mouse_exited.connect(_animate_control.bind(button, false))
 	return button
