@@ -549,3 +549,4 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 全屏右上角不再使用代码生成的粉色矩形字符按钮，改为复用音乐素材中的透明奶油粉 `minimize.png` 和 `close.png`。
 - 桌宠气泡由两行扩展为三行，正文区域高度从 52 增至 72，支持主动陪伴允许的长句，不再静默裁掉第三行。
 - 新增 `docs/ASSET_CATALOG.md`，按功能整理可复用 runtime UI、源动画、狗狗素材和归档规则；不移动原文件，避免破坏 Godot 导入路径。
+- 真实 Windows 点击验证表明，透明播放器原生窗口在复用全屏窗口退出时会被系统隐藏。运行时改为由 `Pet` 接收恢复信号并重新创建普通播放器窗口；音乐会话和歌词服务保留在主节点，返回小窗后仍可继续同步。
