@@ -479,6 +479,10 @@ func _on_session_updated(info: Dictionary) -> void:
 	_source_label.text = String(_session.get("source_label", "本地播放器"))
 	var status := String(_session.get("playback_status", "unknown"))
 	_status_label.text = "正在播放" if status == "playing" else ("已暂停" if status == "paused" else "等待播放")
+	# A fresh compact panel is created after leaving fullscreen. The monitor keeps
+	# the latest media artwork, so rehydrate it instead of waiting for a new track.
+	if _cover.texture == null:
+		_load_cover()
 	_progress.interactive = int(_session.get("duration_ms", 0)) > 0
 	_progress.tooltip_text = "拖动播放进度" if bool(_session.get("can_seek", false)) else "可尝试拖动，部分播放器可能不响应"
 	_update_play_pause_state()
@@ -808,7 +812,9 @@ func _enter_fullscreen() -> void:
 		return
 	var main_window := get_tree().root
 	_main_window_was_always_on_top = main_window.always_on_top
-	main_window.always_on_top = true
+	# The immersive scene owns its own animated pet. Keeping the desktop pet
+	# window on top here creates a duplicated pet (and dog) over the lyrics.
+	main_window.always_on_top = false
 	if not _immersive_view.is_node_ready():
 		await get_tree().process_frame
 		if not _fullscreen_transitioning:
@@ -867,8 +873,8 @@ func _enter_fullscreen() -> void:
 	DisplayServer.window_move_to_foreground(get_window_id())
 	grab_focus()
 	_immersive_view.play_enter_transition()
-	main_window.always_on_top = true
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, true, main_window.get_window_id())
+	main_window.always_on_top = false
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, main_window.get_window_id())
 
 
 func _exit_fullscreen() -> void:

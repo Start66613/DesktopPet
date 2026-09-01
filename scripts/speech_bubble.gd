@@ -3,15 +3,15 @@ class_name PetSpeechBubble
 
 const BUBBLE_BODY_TEXTURE := preload("res://assets/care/runtime/bubbles/speech_body.png")
 const BUBBLE_TAIL_TEXTURE := preload("res://assets/care/runtime/bubbles/speech_tail.png")
-const BODY_RECT := Rect2(0, 0, 220, 72)
-const TAIL_RECT := Rect2(98, 69, 24, 15)
-const BUBBLE_BOUNDS := Rect2(0, 0, 220, 84)
+const BODY_RECT := Rect2(0, 0, 268, 98)
+const TAIL_RECT := Rect2(120, 93, 28, 18)
+const BUBBLE_BOUNDS := Rect2(0, 0, 268, 111)
 const FONT_SIZE := 14
 const LONG_TEXT_FONT_SIZE := 12
 const EMOJI_SIZE := 15
 const TEXT_COLOR := Color("573f49")
-const TEXT_LEFT := 27.0
-const TEXT_WIDTH := 153.0
+const TEXT_LEFT := 31.0
+const TEXT_WIDTH := 188.0
 
 var _text := ""
 var _emoji := ""
@@ -74,8 +74,8 @@ func _draw() -> void:
 	if _cjk_font and not _text.is_empty():
 		var measured_width := _cjk_font.get_string_size(_text, HORIZONTAL_ALIGNMENT_LEFT, -1, FONT_SIZE).x
 		if measured_width > TEXT_WIDTH:
-			draw_multiline_string(_cjk_font, Vector2(TEXT_LEFT, 18), _text, HORIZONTAL_ALIGNMENT_CENTER, TEXT_WIDTH, LONG_TEXT_FONT_SIZE, 3, TEXT_COLOR)
+			draw_multiline_string(_cjk_font, Vector2(TEXT_LEFT, 18), _text, HORIZONTAL_ALIGNMENT_CENTER, TEXT_WIDTH, LONG_TEXT_FONT_SIZE, 4, TEXT_COLOR)
 		else:
-			draw_string(_cjk_font, Vector2(TEXT_LEFT, 44), _text, HORIZONTAL_ALIGNMENT_CENTER, TEXT_WIDTH, FONT_SIZE, TEXT_COLOR)
+			draw_string(_cjk_font, Vector2(TEXT_LEFT, 52), _text, HORIZONTAL_ALIGNMENT_CENTER, TEXT_WIDTH, FONT_SIZE, TEXT_COLOR)
 	if _emoji_font and not _emoji.is_empty():
-		draw_string(_emoji_font, Vector2(188, 45), _emoji, HORIZONTAL_ALIGNMENT_CENTER, 24, EMOJI_SIZE, TEXT_COLOR)
+		draw_string(_emoji_font, Vector2(228, 54), _emoji, HORIZONTAL_ALIGNMENT_CENTER, 24, EMOJI_SIZE, TEXT_COLOR)

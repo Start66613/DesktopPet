@@ -36,8 +36,15 @@ var _duration_label: Label
 var _previous_button: TextureButton
 var _play_pause_button: TextureButton
 var _next_button: TextureButton
+var _shuffle_button: TextureButton
 var _mode_button: TextureButton
 var _mode_badge: Label
+var _play_face: Panel
+var _play_icon: Label
+var _previous_feedback: Panel
+var _next_feedback: Panel
+var _mode_feedback: Panel
+var _current_mode_name := "sequential"
 var _minimize_button: BaseButton
 var _exit_button: BaseButton
 var _companion_panel: Panel
@@ -158,6 +165,9 @@ func _dispatch_pointer_press(pointer_position: Vector2) -> bool:
 	if _button_hit(_next_button, pointer_position):
 		_emit_action("next")
 		return true
+	if _button_hit(_shuffle_button, pointer_position):
+		_emit_action("mode_shuffle")
+		return true
 	if _button_hit(_mode_button, pointer_position):
 		_emit_action("mode")
 		return true
@@ -178,12 +188,23 @@ func _emit_action(action: String) -> void:
 		"exit":
 			exit_requested.emit()
 		"previous":
+			_pulse_control(_previous_feedback)
 			previous_requested.emit()
 		"play_pause":
+			_set_play_visual(not _last_playing, true)
 			play_pause_requested.emit()
 		"next":
+			_pulse_control(_next_feedback)
 			next_requested.emit()
+		"mode_shuffle":
+			_current_mode_name = "shuffle"
+			_position_mode_feedback()
+			_pulse_control(_mode_feedback)
+			mode_requested.emit()
 		"mode":
+			_current_mode_name = "list" if _current_mode_name == "shuffle" else "shuffle"
+			_position_mode_feedback()
+			_pulse_control(_mode_feedback)
 			mode_requested.emit()
 
 func _button_hit(button: BaseButton, pointer_position: Vector2) -> bool:
@@ -223,13 +244,18 @@ func set_session(info: Dictionary, mode_name: String) -> void:
 	var playing := String(info.get("playback_status", "")) == "playing"
 	_last_track_id = track_id
 	_last_playing = playing
+	_set_play_visual(playing, false)
 	_play_pause_button.tooltip_text = "暂停" if playing else "播放"
 	_previous_button.disabled = not found or not bool(info.get("can_previous", false))
 	_next_button.disabled = not found or not bool(info.get("can_next", false))
 	_play_pause_button.disabled = not found
+	_shuffle_button.disabled = not found
 	_mode_button.disabled = not found
+	_current_mode_name = mode_name
 	_mode_badge.text = _mode_badge_text(mode_name)
+	_shuffle_button.tooltip_text = "随机播放" if mode_name != "shuffle" else "正在随机播放"
 	_mode_button.tooltip_text = "播放顺序：" + _mode_display_name(mode_name)
+	_position_mode_feedback()
 	if found and playing and not track_id.is_empty() and track_id != previous_track:
 		show_companion_note("《%s》开始啦，我陪你一起听。" % String(info.get("title", "这首歌")).left(18), "🎧")
 	elif found and playing and not was_playing:
@@ -400,15 +426,33 @@ func _build_ui() -> void:
 	_play_pause_button.pressed.connect(_emit_action.bind("play_pause"))
 	_next_button = _make_dock_hit_button("下一首")
 	_next_button.pressed.connect(_emit_action.bind("next"))
-	_mode_button = _make_dock_hit_button("播放顺序")
+	_shuffle_button = _make_dock_hit_button("随机播放")
+	_shuffle_button.pressed.connect(_emit_action.bind("mode_shuffle"))
+	_mode_button = _make_dock_hit_button("循环播放")
 	_mode_button.pressed.connect(_emit_action.bind("mode"))
 	add_child(_previous_button)
 	add_child(_play_pause_button)
 	add_child(_next_button)
+	add_child(_shuffle_button)
 	add_child(_mode_button)
 	_mode_badge = _make_label("", 14, Color("6f9478"), HORIZONTAL_ALIGNMENT_CENTER)
 	_mode_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_mode_button.add_child(_mode_badge)
+	_play_face = _make_round_control_face()
+	_play_face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_play_face.z_index = 101
+	add_child(_play_face)
+	_play_icon = _make_label("▶", 36, Color("c86f82"), HORIZONTAL_ALIGNMENT_CENTER)
+	_play_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_play_face.add_child(_play_icon)
+	_previous_feedback = _make_feedback_ring()
+	_next_feedback = _make_feedback_ring()
+	_mode_feedback = _make_feedback_ring()
+	_previous_feedback.visible = false
+	_next_feedback.visible = false
+	add_child(_previous_feedback)
+	add_child(_next_feedback)
+	add_child(_mode_feedback)
 
 	_minimize_button = _make_window_button("minimize.png", "返回窗口")
 	_minimize_button.pressed.connect(_emit_action.bind("exit"))
@@ -467,7 +511,7 @@ func _layout() -> void:
 	_set_control_rect(_lyrics_panel_skin, Rect2(1000, 98, 500, 530))
 	_set_control_rect(_mini_dock, Rect2(216, 664, 1240, 272))
 
-	var cover_frame_rect := _scaled_rect(Rect2(268, 709, 148, 156))
+	var cover_frame_rect := _scaled_rect(Rect2(106, 154, 610, 534))
 	_cover_frame.position = cover_frame_rect.position
 	_cover_frame.size = cover_frame_rect.size
 	_cover.position = Vector2.ZERO
@@ -475,7 +519,7 @@ func _layout() -> void:
 	_cover.pivot_offset = _cover.size * 0.5
 	if _cover.material:
 		_cover.material.set_shader_parameter("rect_size", _cover.size)
-		_cover.material.set_shader_parameter("corner_radius", 20.0 * minf(size.x / BASE_SIZE.x, size.y / BASE_SIZE.y))
+		_cover.material.set_shader_parameter("ellipse_clip", true)
 
 	for decoration in _cover_decorations:
 		decoration.visible = false
@@ -505,8 +549,16 @@ func _layout() -> void:
 	_set_control_rect(_previous_button, Rect2(892, 759, 92, 92))
 	_set_control_rect(_play_pause_button, Rect2(1008, 740, 118, 118))
 	_set_control_rect(_next_button, Rect2(1144, 759, 92, 92))
-	_set_control_rect(_mode_button, Rect2(1236, 756, 174, 92))
+	_set_control_rect(_shuffle_button, Rect2(1236, 756, 84, 92))
+	_set_control_rect(_mode_button, Rect2(1326, 756, 84, 92))
 	_mode_badge.visible = false
+	_set_control_rect(_play_face, Rect2(1027, 759, 80, 80))
+	_play_icon.position = Vector2.ZERO
+	_play_icon.size = _play_face.size
+	_play_icon.pivot_offset = _play_icon.size * 0.5
+	_set_control_rect(_previous_feedback, Rect2(910, 777, 56, 56))
+	_set_control_rect(_next_feedback, Rect2(1162, 777, 56, 56))
+	_position_mode_feedback()
 	_set_control_rect(_minimize_button, Rect2(1515, 25, 56, 56))
 	_set_control_rect(_exit_button, Rect2(1588, 25, 56, 56))
 
@@ -523,6 +575,45 @@ func _set_companion_visible(should_show: bool) -> void:
 	_companion_title.visible = should_show
 	_companion_note.visible = should_show
 	_companion_emoji.visible = should_show
+
+
+func _set_play_visual(playing: bool, animate: bool) -> void:
+	_last_playing = playing
+	if not is_instance_valid(_play_icon) or not is_instance_valid(_play_face):
+		return
+	_play_icon.text = "Ⅱ" if playing else "▶"
+	_play_icon.position.x = -1.0 if playing else 3.0
+	if not animate:
+		_play_face.scale = Vector2.ONE
+		return
+	var tween := create_tween()
+	tween.tween_property(_play_face, "scale", Vector2.ONE * 0.90, 0.07).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_play_face, "scale", Vector2.ONE * 1.10, 0.15).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(_play_face, "scale", Vector2.ONE, 0.14).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+
+
+func _position_mode_feedback() -> void:
+	if not is_instance_valid(_mode_feedback):
+		return
+	var highlight_rect := Rect2(1248, 777, 56, 56) if _current_mode_name == "shuffle" else Rect2(1338, 777, 56, 56)
+	_set_control_rect(_mode_feedback, highlight_rect)
+	_mode_feedback.visible = true
+	_mode_feedback.modulate = Color(1.0, 1.0, 1.0, 0.92)
+
+
+func _pulse_control(control: Control) -> void:
+	if not is_instance_valid(control):
+		return
+	control.visible = true
+	control.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	control.scale = Vector2.ONE * 0.88
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(control, "scale", Vector2.ONE * 1.16, 0.12).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(control, "modulate:a", 0.82, 0.15)
+	tween.chain().tween_property(control, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	if control != _mode_feedback:
+		tween.tween_property(control, "modulate:a", 0.0, 0.18).set_delay(0.14)
 
 
 func _update_stage_pet(delta: float) -> void:
@@ -603,6 +694,32 @@ func _make_label(text_value: String, font_size: int, color: Color, alignment: Ho
 	return label
 
 
+func _make_round_control_face() -> Panel:
+	var face := Panel.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("fff8f6")
+	style.border_color = Color("d98394")
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(999)
+	style.shadow_color = Color(0.48, 0.2, 0.3, 0.18)
+	style.shadow_size = 7
+	face.add_theme_stylebox_override("panel", style)
+	return face
+
+
+func _make_feedback_ring() -> Panel:
+	var ring := Panel.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(1.0, 0.87, 0.89, 0.20)
+	style.border_color = Color(0.89, 0.46, 0.57, 0.90)
+	style.set_border_width_all(3)
+	style.set_corner_radius_all(999)
+	ring.add_theme_stylebox_override("panel", style)
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ring.z_index = 99
+	return ring
+
+
 func _make_dock_hit_button(tooltip: String) -> TextureButton:
 	var button := TextureButton.new()
 	button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
@@ -649,6 +766,7 @@ func _make_cover_material(rect_size: Vector2, radius: float) -> ShaderMaterial:
 shader_type canvas_item;
 uniform vec2 rect_size = vec2(344.0, 340.0);
 uniform float corner_radius = 20.0;
+uniform bool ellipse_clip = false;
 varying vec2 local_position;
 
 void vertex() {
@@ -657,10 +775,16 @@ void vertex() {
 
 void fragment() {
 	vec4 color = texture(TEXTURE, UV);
-	vec2 half_size = rect_size * 0.5;
-	vec2 rounded = abs(local_position - half_size) - (half_size - vec2(corner_radius));
-	float distance_to_edge = length(max(rounded, vec2(0.0))) + min(max(rounded.x, rounded.y), 0.0) - corner_radius;
-	color.a *= 1.0 - smoothstep(-1.0, 1.0, distance_to_edge);
+	if (ellipse_clip) {
+		vec2 normalized = (local_position / max(rect_size, vec2(1.0)) - vec2(0.5)) * 2.0;
+		float ellipse_edge = dot(normalized, normalized);
+		color.a *= 1.0 - smoothstep(0.985, 1.0, ellipse_edge);
+	} else {
+		vec2 half_size = rect_size * 0.5;
+		vec2 rounded = abs(local_position - half_size) - (half_size - vec2(corner_radius));
+		float distance_to_edge = length(max(rounded, vec2(0.0))) + min(max(rounded.x, rounded.y), 0.0) - corner_radius;
+		color.a *= 1.0 - smoothstep(-1.0, 1.0, distance_to_edge);
+	}
 	COLOR = color;
 }
 """
