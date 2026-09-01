@@ -1,39 +1,121 @@
-# DesktopPet
+# DesktopPet - Xiao Xueqiu
 
-DesktopPet 是一款使用 Godot 4 开发的 Windows 少女桌宠。她可以在桌面上移动、休息和表达心情，也能通过养成、小游戏、AI 对话、音乐陪伴与可选的屏幕感知功能陪伴用户。
+> A Windows desktop companion who walks, sleeps, chats, listens to music, plays badminton, and keeps you company.
 
-## 当前功能
+[![Godot](https://img.shields.io/badge/Godot-4.7.1-478cbf?logo=godotengine)](https://godotengine.org/)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0078d4?logo=windows)](#local-run)
+[![License](https://img.shields.io/badge/license-MIT-75b798.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-active%20development-f5a3b7.svg)](#roadmap)
 
-- 透明桌面窗口、透明区域点击穿透与拖拽互动
-- 八方向移动、待机、睡觉、听歌及多种活动动画
-- 饮食、饮水、娱乐、礼物和好感度养成
-- AI 聊天与主动陪伴，可配置 OpenAI 兼容接口
-- 可选的前台应用检测与屏幕画面建议
-- Windows 媒体会话检测、歌词、进度控制和沉浸播放器
-- 桌面羽毛球小游戏
-- 可领养、命名和互动的小狗伙伴
+DesktopPet is a personal Godot project focused on **companionship, playful interaction, and a soft girl-style UI**. It is more than a static mascot: the pet wanders and rests on the desktop, speaks in bubbles, reacts to music, supports AI chat and optional screen awareness, and includes care activities, a mini-game, and a dog companion.
 
-## 开发环境
+> Current build: `0.1.0` development version. The immersive music experience is still being actively redesigned.
 
-- Godot 4.7.1
-- GDScript
-- Windows 10/11
-- PowerShell、.NET Framework 编译器和 Inno Setup 用于 Windows 发布构建
+## Preview
 
-## 本地运行
+| Desktop interaction | Music center |
+| --- | --- |
+| ![The pet showing a speech bubble on the desktop](docs/images/desktop-pet-interaction.png) | ![The pink lace-styled music player](docs/images/music-player.png) |
 
-1. 使用 Godot 4.7.1 打开项目目录。
-2. 运行 `scenes/pet.tscn`，或直接运行项目主场景。
-3. AI 功能通过应用内设置填写接口地址、模型和 API Key。请勿将真实密钥写入仓库文件。
+| Companion settings | Desktop badminton mini-game |
+| --- | --- |
+| ![Companion settings window](docs/images/companion-settings.png) | ![Badminton mini-game result screen](docs/images/badminton-gameplay.png) |
 
-## 构建
+## Features
 
-Windows 发布脚本位于 `tools/build_windows_release.ps1`。构建产物会写入 `build/` 和 `dist/`，这些目录不会提交到 Git。
+### Desktop companion
 
-## 隐私
+- Borderless transparent desktop window with click-through in transparent pixels.
+- Eight-direction walking, idle, sleep, turn-over, music, handheld, and badminton animation states.
+- Mouse dragging, context menus, speech bubbles, emoticons, and interaction feedback.
+- Configurable proactive-expression frequency; the pet stays quiet while sleeping.
 
-屏幕感知默认关闭，启用前需要用户明确授权。项目的 `.env`、本地配置、密钥、构建缓存和运行日志均被 `.gitignore` 排除。
+### Care and interaction
 
-## 许可证
+- Food, drinks, entertainment, gifts, and affection feedback.
+- Draggable girl-style care panels with button motion feedback.
+- A desktop badminton duel with rounds, scoring, combos, results, and sound effects.
+- A hidden Easter egg: ride a dragon through a secret setting interaction.
 
-源代码按 [MIT License](LICENSE) 发布。项目中的字体、音频以及生成或第三方美术素材可能受各自许可证或服务条款约束，复用前请查看 `release/` 中的许可与声明文件。
+### AI and local awareness
+
+- AI chat through an OpenAI-compatible Chat Completions endpoint configured in-app.
+- Error messages and random dialogue stay in the pet's voice.
+- Optional foreground-app/process awareness for more contextual work, game, and music companionship.
+- Screen awareness is off by default and requires explicit authorization in settings.
+
+### Music companion
+
+- Reads Windows media sessions and can follow players such as QQ Music and NetEase Cloud Music.
+- Album cover, track metadata, lyrics, progress, play/pause, previous/next, playback order, and seek control.
+- Pet-style reactions to song changes, playback state, and lyric changes.
+
+### Dog companion
+
+- Adopt, name, send home, and manage a dog companion.
+- Eight-direction walking plus sit, sleep, and happy idle animations.
+- The pet reacts to the dog's state through dialogue and interactions.
+
+## Technical overview
+
+| Area | Implementation |
+| --- | --- |
+| Desktop/game layer | Godot 4.7.1, GDScript, native transparent windows |
+| Click-through | Sprite alpha hit testing plus Windows window input-region control |
+| Animation | `AnimatedSprite2D`, SpriteFrames, multi-frame pixel animation |
+| Music integration | Windows Global System Media Transport Controls bridge |
+| AI chat | Configurable OpenAI-compatible Chat Completions endpoint |
+| Local awareness | Foreground-app detection and opt-in screen-state analysis |
+| Windows release | Godot export, PowerShell build scripts, Inno Setup installer |
+
+The project is organized by feature under [`scripts/`](scripts), [`scenes/`](scenes), [`assets/`](assets), and [`tools/`](tools). See the [asset catalog](docs/ASSET_CATALOG.md) for source, runtime, and backup asset locations.
+
+## Local run
+
+### Requirements
+
+- Windows 10 or Windows 11
+- Godot `4.7.1`
+- Optional: QQ Music or NetEase Cloud Music for local media-session integration
+
+### Steps
+
+1. Clone the repository and import the project with Godot `4.7.1`.
+2. Run the project main scene, or run `scenes/pet.tscn`.
+3. Open care, chat, companion settings, music, and mini-games from the pet's right-click menu.
+4. For AI chat, enter the endpoint, model, and API key in the in-app settings. Never commit real keys.
+
+## Windows build
+
+The release script is [`tools/build_windows_release.ps1`](tools/build_windows_release.ps1). It produces:
+
+- `dist/DesktopPet-0.1.0-Setup.exe`: Inno Setup installer
+- `dist/DesktopPet-0.1.0-Portable.zip`: portable build
+
+`build/`, `dist/`, `.env`, runtime logs, Godot import caches, and local backups are excluded by `.gitignore`.
+
+## Privacy and safety
+
+- AI endpoints and screen awareness are optional and disabled by default.
+- API keys, tokens, and local environment files are excluded from GitHub.
+- Screen frames are analyzed only after authorization; the project does not upload or persist screenshots by default.
+- Review the terms and licenses of third-party models, music clients, and generated assets before redistribution.
+
+## Roadmap
+
+- [x] Transparent desktop pet, click-through, drag interaction, and eight-direction motion
+- [x] Care system, speech bubbles, context menus, and themed panels
+- [x] AI chat, proactive-companion settings, and foreground-app detection
+- [x] Windows media sessions, lyrics, music player, and music companionship
+- [x] Badminton mini-game, dog companion, and dragon Easter egg
+- [ ] Rebuild immersive music mode so the desktop pet remains freely active with a natural fullscreen transition
+- [ ] More autonomous dog interactions, furniture, and desktop events
+- [ ] Stronger multimodal screen awareness and AI work/game assistance
+
+## Feedback
+
+This is a continuously evolving learning project. Issues and UX feedback are welcome. Please include Windows version, reproduction steps, expected behavior, and sanitized screenshots/logs when reporting a bug.
+
+## License and asset notice
+
+Source code is released under the [MIT License](LICENSE). Fonts, music, sound effects, generated art, and third-party assets may have their own restrictions. Check the notices under `release/` and the terms of each source before publishing or redistributing.
