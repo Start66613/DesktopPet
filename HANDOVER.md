@@ -550,3 +550,11 @@ API 是 **`DisplayServer.window_set_mouse_passthrough(region: PackedVector2Array
 - 桌宠气泡由两行扩展为三行，正文区域高度从 52 增至 72，支持主动陪伴允许的长句，不再静默裁掉第三行。
 - 新增 `docs/ASSET_CATALOG.md`，按功能整理可复用 runtime UI、源动画、狗狗素材和归档规则；不移动原文件，避免破坏 Godot 导入路径。
 - 真实 Windows 点击验证表明，透明播放器原生窗口在复用全屏窗口退出时会被系统隐藏。运行时改为由 `Pet` 接收恢复信号并重新创建普通播放器窗口；音乐会话和歌词服务保留在主节点，返回小窗后仍可继续同步。
+
+### 2026-09-01 全屏音乐场景重排
+
+- 修改前备份：`.backups/fullscreen-redesign-20260901`。
+- 沉浸模式不再把普通播放器面板等比放大；改为左侧可活动的桌宠舞台、右侧独立蕾丝歌词框和底部完整花边迷你控制栏。复用 `lyrics_panel.png` 与 `mini_player.png`，避免裁切 `player_panel.png` 时携带出白色矩形底块。
+- 小雪球会在舞台范围内自行行走、停下听歌；音乐标题、封面、进度和媒体控制收进底栏，AI 陪听短句置于舞台顶部，不遮挡角色。
+- 全屏背景新增暖粉遮罩，压低素材高光；控制输入同时由沉浸视图和原生 `Window.window_input` 处理，右上角返回、底栏按钮、拖动进度、`Esc`、`F11` 均有两层事件兜底。
+- Godot 4.7.1 对 `music_player_panel.gd` 与 `immersive_music_view.gd` 的 `--check-only` 通过；Windows Release 已于 2026-09-01 16:08 重建并启动。无渲染后端无法截取顶层原生窗口，因此像素截图断言在 headless 模式自动跳过，窗口逻辑仍保留单独 QA。

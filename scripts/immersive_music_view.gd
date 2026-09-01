@@ -11,24 +11,16 @@ signal seek_requested(ratio: float)
 const UI_DIR := "res://assets/music/runtime/ui"
 const ProgressControl := preload("res://scripts/music_progress_control.gd")
 const BASE_SIZE := Vector2(1672, 941)
-const PREVIOUS_REGION := Rect2(423, 747, 135, 137)
-const PLAY_REGION := Rect2(592, 738, 195, 151)
-const PAUSE_REGION := Rect2(817, 746, 143, 139)
-const NEXT_REGION := Rect2(999, 748, 139, 137)
-const SHUFFLE_REGION := Rect2(1170, 774, 88, 88)
-const REPEAT_REGION := Rect2(1292, 773, 91, 89)
-const PREVIOUS_RECT := Rect2(650, 783, 86, 86)
-const PLAY_PAUSE_RECT := Rect2(780, 774, 112, 96)
-const NEXT_RECT := Rect2(936, 783, 86, 86)
-const MODE_RECT := Rect2(1080, 793, 68, 68)
-const MINIMIZE_RECT := Rect2(1452, 42, 112, 112)
-const EXIT_RECT := Rect2(1558, 40, 112, 116)
+const STAGE_RECT := Rect2(145, 138, 610, 470)
 
 var _font: Font
 var _background: ColorRect
 var _skin: TextureRect
+var _background_shade: ColorRect
 var _content_wash: Panel
 var _column_divider: ColorRect
+var _lyrics_panel_skin: TextureRect
+var _mini_dock: TextureRect
 var _cover_frame: Panel
 var _cover: TextureRect
 var _cover_decorations: Array[TextureRect] = []
@@ -52,11 +44,7 @@ var _companion_panel: Panel
 var _companion_title: Label
 var _companion_note: Label
 var _companion_emoji: Label
-var _companion_sprite: AnimatedSprite2D
-var _play_texture: AtlasTexture
-var _pause_texture: AtlasTexture
-var _shuffle_texture: AtlasTexture
-var _repeat_texture: AtlasTexture
+var _stage_pet: AnimatedSprite2D
 var _note_tween: Tween
 var _lyric_tween: Tween
 var _cover_tween: Tween
@@ -72,6 +60,9 @@ var _f11_was_pressed := false
 var _last_action := ""
 var _last_action_at_ms := 0
 var _session: Dictionary = {"found": false}
+var _stage_rng := RandomNumberGenerator.new()
+var _stage_target := Vector2.ZERO
+var _stage_pause_remaining := 0.0
 
 
 func configure(font: Font) -> void:
@@ -82,12 +73,12 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	set_process_input(true)
 	set_process(true)
+	_stage_rng.randomize()
 	_build_ui()
 	_companion_panel.visible = false
 	_companion_title.visible = false
 	_companion_note.visible = false
 	_companion_emoji.visible = false
-	_companion_sprite.visible = false
 	resized.connect(_layout)
 	_layout()
 
@@ -96,9 +87,10 @@ func set_native_window_id(window_id: int) -> void:
 	_native_window_id = window_id
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if not visible or _native_window_id == DisplayServer.INVALID_WINDOW_ID:
 		return
+	_update_stage_pet(delta)
 	var escape_pressed := Input.is_key_pressed(KEY_ESCAPE)
 	var f11_pressed := Input.is_key_pressed(KEY_F11)
 	if (escape_pressed and not _escape_was_pressed) or (f11_pressed and not _f11_was_pressed):
@@ -227,16 +219,15 @@ func set_session(info: Dictionary, mode_name: String) -> void:
 	_companion_title.text = "陪你听歌 · %s" % ("正在播放" if String(info.get("playback_status", "")) == "playing" else ("暂停中" if found else "等待音乐"))
 	if not found and _companion_note.text.strip_edges().is_empty():
 		_companion_note.text = "放一首歌吧，我会认真陪你听。"
+	_set_companion_visible(true)
 	var playing := String(info.get("playback_status", "")) == "playing"
 	_last_track_id = track_id
 	_last_playing = playing
-	_play_pause_button.texture_normal = _pause_texture if playing else _play_texture
 	_play_pause_button.tooltip_text = "暂停" if playing else "播放"
 	_previous_button.disabled = not found or not bool(info.get("can_previous", false))
 	_next_button.disabled = not found or not bool(info.get("can_next", false))
 	_play_pause_button.disabled = not found
 	_mode_button.disabled = not found
-	_mode_button.texture_normal = _shuffle_texture if mode_name == "shuffle" else _repeat_texture
 	_mode_badge.text = _mode_badge_text(mode_name)
 	_mode_button.tooltip_text = "播放顺序：" + _mode_display_name(mode_name)
 	if found and playing and not track_id.is_empty() and track_id != previous_track:
@@ -280,6 +271,7 @@ func show_lyric_message(message: String) -> void:
 
 
 func show_companion_note(text: String, emoji: String) -> void:
+	_set_companion_visible(true)
 	_companion_note.text = text
 	_companion_emoji.text = emoji if not emoji.is_empty() else "♪"
 	if _note_tween and _note_tween.is_valid():
@@ -312,8 +304,15 @@ func _build_ui() -> void:
 	_skin.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_skin.stretch_mode = TextureRect.STRETCH_SCALE
 	_skin.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_skin.modulate = Color(0.84, 0.72, 0.78, 1.0)
 	_skin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_skin)
+
+	_background_shade = ColorRect.new()
+	_background_shade.color = Color(0.38, 0.16, 0.27, 0.23)
+	_background_shade.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_background_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_background_shade)
 
 	_content_wash = Panel.new()
 	_content_wash.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -330,13 +329,27 @@ func _build_ui() -> void:
 	_column_divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_column_divider)
 
+	_lyrics_panel_skin = TextureRect.new()
+	_lyrics_panel_skin.texture = load(UI_DIR + "/lyrics_panel.png") as Texture2D
+	_lyrics_panel_skin.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_lyrics_panel_skin.stretch_mode = TextureRect.STRETCH_SCALE
+	_lyrics_panel_skin.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_lyrics_panel_skin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_lyrics_panel_skin)
+
+	_mini_dock = TextureRect.new()
+	_mini_dock.texture = load(UI_DIR + "/mini_player.png") as Texture2D
+	_mini_dock.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_mini_dock.stretch_mode = TextureRect.STRETCH_SCALE
+	_mini_dock.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_mini_dock.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_mini_dock)
+
 	_cover_frame = Panel.new()
 	_cover_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var cover_style := StyleBoxFlat.new()
-	cover_style.bg_color = Color("fff9f5")
-	cover_style.border_color = Color("e7c2c0")
-	cover_style.set_border_width_all(3)
-	cover_style.set_corner_radius_all(14)
+	cover_style.bg_color = Color(1.0, 1.0, 1.0, 0.0)
+	cover_style.set_corner_radius_all(18)
 	_cover_frame.add_theme_stylebox_override("panel", cover_style)
 	add_child(_cover_frame)
 
@@ -351,16 +364,16 @@ func _build_ui() -> void:
 	_add_cover_decoration("rose.png")
 	_add_cover_decoration("bow_large.png")
 
-	_title_label = _make_label("等待播放器", 38, Color("6f4955"), HORIZONTAL_ALIGNMENT_LEFT)
+	_title_label = _make_label("等待播放器", 24, Color("6f4955"), HORIZONTAL_ALIGNMENT_LEFT)
 	_title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	add_child(_title_label)
-	_artist_label = _make_label("打开 QQ音乐 或 网易云音乐", 25, Color("9f6874"), HORIZONTAL_ALIGNMENT_LEFT)
+	_artist_label = _make_label("打开 QQ音乐 或 网易云音乐", 17, Color("9f6874"), HORIZONTAL_ALIGNMENT_LEFT)
 	_artist_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	add_child(_artist_label)
 	_album_label = _make_label("检测到播放后会自动同步", 20, Color("ad858b"), HORIZONTAL_ALIGNMENT_LEFT)
 	_album_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	add_child(_album_label)
-	_source_label = _make_label("音乐中心", 20, Color("a65f70"), HORIZONTAL_ALIGNMENT_LEFT)
+	_source_label = _make_label("音乐中心", 16, Color("a65f70"), HORIZONTAL_ALIGNMENT_LEFT)
 	add_child(_source_label)
 
 	for row in 5:
@@ -381,23 +394,19 @@ func _build_ui() -> void:
 	add_child(_elapsed_label)
 	add_child(_duration_label)
 
-	_previous_button = _make_atlas_button(PREVIOUS_REGION, "上一首")
+	_previous_button = _make_dock_hit_button("上一首")
 	_previous_button.pressed.connect(_emit_action.bind("previous"))
-	_play_texture = _make_atlas_texture(PLAY_REGION)
-	_pause_texture = _make_atlas_texture(PAUSE_REGION)
-	_play_pause_button = _make_atlas_button(PLAY_REGION, "播放")
+	_play_pause_button = _make_dock_hit_button("播放")
 	_play_pause_button.pressed.connect(_emit_action.bind("play_pause"))
-	_next_button = _make_atlas_button(NEXT_REGION, "下一首")
+	_next_button = _make_dock_hit_button("下一首")
 	_next_button.pressed.connect(_emit_action.bind("next"))
-	_shuffle_texture = _make_atlas_texture(SHUFFLE_REGION)
-	_repeat_texture = _make_atlas_texture(REPEAT_REGION)
-	_mode_button = _make_atlas_button(REPEAT_REGION, "播放顺序")
+	_mode_button = _make_dock_hit_button("播放顺序")
 	_mode_button.pressed.connect(_emit_action.bind("mode"))
 	add_child(_previous_button)
 	add_child(_play_pause_button)
 	add_child(_next_button)
 	add_child(_mode_button)
-	_mode_badge = _make_label(">", 21, Color("6f9478"), HORIZONTAL_ALIGNMENT_CENTER)
+	_mode_badge = _make_label("", 14, Color("6f9478"), HORIZONTAL_ALIGNMENT_CENTER)
 	_mode_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_mode_button.add_child(_mode_badge)
 
@@ -428,13 +437,14 @@ func _build_ui() -> void:
 	_companion_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(_companion_note)
 
-	_companion_sprite = AnimatedSprite2D.new()
-	_companion_sprite.sprite_frames = load("res://assets/runtime/pet_sprite_frames.tres") as SpriteFrames
-	if _companion_sprite.sprite_frames and not _companion_sprite.sprite_frames.get_animation_names().is_empty():
-		var animation: StringName = &"music" if _companion_sprite.sprite_frames.has_animation(&"music") else _companion_sprite.sprite_frames.get_animation_names()[0]
-		_companion_sprite.play(animation)
-	_companion_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	add_child(_companion_sprite)
+	_stage_pet = AnimatedSprite2D.new()
+	_stage_pet.sprite_frames = load("res://assets/runtime/pet_sprite_frames.tres") as SpriteFrames
+	if _stage_pet.sprite_frames and not _stage_pet.sprite_frames.get_animation_names().is_empty():
+		var animation: StringName = &"music" if _stage_pet.sprite_frames.has_animation(&"music") else _stage_pet.sprite_frames.get_animation_names()[0]
+		_stage_pet.play(animation)
+	_stage_pet.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_stage_pet.z_index = 12
+	add_child(_stage_pet)
 
 
 func has_visible_companion() -> bool:
@@ -452,54 +462,121 @@ func _layout() -> void:
 		return
 	_content_wash.visible = false
 	_column_divider.visible = false
+	_lyrics_panel_skin.visible = true
+	_mini_dock.visible = true
+	_set_control_rect(_lyrics_panel_skin, Rect2(1000, 98, 500, 530))
+	_set_control_rect(_mini_dock, Rect2(216, 664, 1240, 272))
 
-	var cover_frame_rect := _scaled_rect(Rect2(135, 160, 475, 420))
+	var cover_frame_rect := _scaled_rect(Rect2(268, 709, 148, 156))
 	_cover_frame.position = cover_frame_rect.position
 	_cover_frame.size = cover_frame_rect.size
-	var cover_inset := _scaled_vector(Vector2(4, 4))
-	_cover.position = cover_inset
-	_cover.size = cover_frame_rect.size - cover_inset * 2.0
+	_cover.position = Vector2.ZERO
+	_cover.size = cover_frame_rect.size
 	_cover.pivot_offset = _cover.size * 0.5
 	if _cover.material:
 		_cover.material.set_shader_parameter("rect_size", _cover.size)
-		_cover.material.set_shader_parameter("corner_radius", 42.0 * minf(size.x / BASE_SIZE.x, size.y / BASE_SIZE.y))
+		_cover.material.set_shader_parameter("corner_radius", 20.0 * minf(size.x / BASE_SIZE.x, size.y / BASE_SIZE.y))
 
 	for decoration in _cover_decorations:
 		decoration.visible = false
-	_set_control_rect(_source_label, Rect2(785, 104, 680, 30))
-	_set_control_rect(_title_label, Rect2(135, 590, 475, 48))
+	_set_control_rect(_title_label, Rect2(475, 699, 260, 30))
 	_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_set_control_rect(_artist_label, Rect2(135, 638, 475, 32))
+	_set_control_rect(_artist_label, Rect2(475, 728, 270, 25))
 	_artist_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	_set_control_rect(_album_label, Rect2(135, 670, 475, 26))
-	_album_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_album_label.visible = false
+	_set_control_rect(_source_label, Rect2(1045, 155, 400, 25))
+	_source_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	for row in _lyric_labels.size():
 		var label := _lyric_labels[row]
-		_set_control_rect(label, Rect2(770, 185 + row * 78, 710, 62))
+		_set_control_rect(label, Rect2(1055, 222 + row * 62, 390, 48))
 		label.pivot_offset = label.size * 0.5
-	_set_control_rect(_lyrics_source_label, Rect2(1170, 610, 295, 24))
+	_set_control_rect(_lyrics_source_label, Rect2(1090, 548, 320, 22))
 
-	_set_control_rect(_companion_panel, Rect2(650, 555, 805, 124))
-	_set_control_rect(_companion_title, Rect2(700, 570, 520, 28))
-	_set_control_rect(_companion_emoji, Rect2(686, 608, 44, 40))
-	_set_control_rect(_companion_note, Rect2(736, 602, 520, 52))
-	var companion_scale := minf(size.x / BASE_SIZE.x, size.y / BASE_SIZE.y)
-	_companion_sprite.position = _scaled_vector(Vector2(1370, 617))
-	_companion_sprite.scale = Vector2.ONE * companion_scale * 0.42
+	_set_control_rect(_companion_panel, Rect2(145, 58, 555, 88))
+	_set_control_rect(_companion_title, Rect2(178, 68, 420, 24))
+	_set_control_rect(_companion_emoji, Rect2(174, 96, 36, 34))
+	_set_control_rect(_companion_note, Rect2(216, 94, 440, 34))
 
-	_set_control_rect(_progress, Rect2(275, 756, 1122, 44))
-	_set_control_rect(_elapsed_label, Rect2(285, 790, 100, 26))
-	_set_control_rect(_duration_label, Rect2(1297, 790, 90, 26))
+	_set_control_rect(_progress, Rect2(470, 797, 350, 34))
+	_set_control_rect(_elapsed_label, Rect2(480, 824, 70, 20))
+	_set_control_rect(_duration_label, Rect2(752, 824, 60, 20))
 
-	_set_control_rect(_previous_button, Rect2(617, 820, 74, 74))
-	_set_control_rect(_play_pause_button, Rect2(742, 807, 98, 88))
-	_set_control_rect(_next_button, Rect2(891, 820, 74, 74))
-	_set_control_rect(_mode_button, Rect2(1060, 826, 62, 62))
-	_mode_badge.position = Vector2(_mode_button.size.x * 0.56, 0)
-	_mode_badge.size = Vector2(_mode_button.size.x * 0.38, _mode_button.size.y * 0.4)
+	_set_control_rect(_previous_button, Rect2(892, 759, 92, 92))
+	_set_control_rect(_play_pause_button, Rect2(1008, 740, 118, 118))
+	_set_control_rect(_next_button, Rect2(1144, 759, 92, 92))
+	_set_control_rect(_mode_button, Rect2(1236, 756, 174, 92))
+	_mode_badge.visible = false
 	_set_control_rect(_minimize_button, Rect2(1515, 25, 56, 56))
 	_set_control_rect(_exit_button, Rect2(1588, 25, 56, 56))
+
+	if is_instance_valid(_stage_pet):
+		_stage_pet.scale = Vector2.ONE * minf(size.x / BASE_SIZE.x, size.y / BASE_SIZE.y) * 0.78
+		if _stage_pet.position == Vector2.ZERO:
+			_stage_pet.position = _scaled_vector(Vector2(445, 430))
+		if _stage_target != Vector2.ZERO:
+			_stage_target = _clamp_stage_position(_stage_target)
+
+
+func _set_companion_visible(should_show: bool) -> void:
+	_companion_panel.visible = should_show
+	_companion_title.visible = should_show
+	_companion_note.visible = should_show
+	_companion_emoji.visible = should_show
+
+
+func _update_stage_pet(delta: float) -> void:
+	if not is_instance_valid(_stage_pet) or not _stage_pet.visible:
+		return
+	if _stage_target == Vector2.ZERO:
+		_choose_stage_target()
+	if _stage_pause_remaining > 0.0:
+		_stage_pause_remaining = maxf(0.0, _stage_pause_remaining - delta)
+		_play_stage_animation("music" if _session_is_playing() else "idle")
+		return
+	var offset := _stage_target - _stage_pet.position
+	if offset.length() < 4.0:
+		_stage_pause_remaining = _stage_rng.randf_range(1.8, 4.2)
+		_choose_stage_target()
+		return
+	var travel := minf(offset.length(), maxf(95.0, minf(size.x, size.y) * 0.14) * delta)
+	_stage_pet.position += offset.normalized() * travel
+	_play_stage_animation(_stage_walk_animation(offset.normalized()))
+
+
+func _choose_stage_target() -> void:
+	var stage := _scaled_rect(STAGE_RECT)
+	_stage_target = Vector2(
+		_stage_rng.randf_range(stage.position.x + stage.size.x * 0.22, stage.end.x - stage.size.x * 0.22),
+		_stage_rng.randf_range(stage.position.y + stage.size.y * 0.26, stage.end.y - stage.size.y * 0.12)
+	)
+
+
+func _clamp_stage_position(point: Vector2) -> Vector2:
+	var stage := _scaled_rect(STAGE_RECT)
+	return Vector2(
+		clampf(point.x, stage.position.x + stage.size.x * 0.18, stage.end.x - stage.size.x * 0.18),
+		clampf(point.y, stage.position.y + stage.size.y * 0.22, stage.end.y - stage.size.y * 0.10)
+	)
+
+
+func _stage_walk_animation(direction: Vector2) -> String:
+	if absf(direction.x) > absf(direction.y):
+		return "walk_right" if direction.x >= 0.0 else "walk_left"
+	if direction.y >= 0.0:
+		return "walk_down"
+	return "walk_up"
+
+
+func _play_stage_animation(animation_name: String) -> void:
+	if not _stage_pet.sprite_frames or not _stage_pet.sprite_frames.has_animation(StringName(animation_name)):
+		return
+	if _stage_pet.animation != StringName(animation_name):
+		_stage_pet.play(StringName(animation_name))
+
+
+func _session_is_playing() -> bool:
+	return String(_session.get("playback_status", "")) == "playing"
 
 
 func play_enter_transition() -> void:
@@ -526,19 +603,14 @@ func _make_label(text_value: String, font_size: int, color: Color, alignment: Ho
 	return label
 
 
-func _make_atlas_button(region: Rect2, tooltip: String) -> TextureButton:
+func _make_dock_hit_button(tooltip: String) -> TextureButton:
 	var button := TextureButton.new()
-	button.texture_normal = _make_atlas_texture(region)
-	button.ignore_texture_size = true
-	button.stretch_mode = TextureButton.STRETCH_SCALE
-	button.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	button.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
 	button.z_index = 100
 	button.tooltip_text = tooltip
+	button.focus_mode = Control.FOCUS_NONE
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
-	button.mouse_entered.connect(_animate_control.bind(button, true))
-	button.mouse_exited.connect(_animate_control.bind(button, false))
 	return button
 
 
@@ -557,13 +629,6 @@ func _make_window_button(texture_name: String, tooltip: String) -> TextureButton
 	button.mouse_entered.connect(_animate_control.bind(button, true))
 	button.mouse_exited.connect(_animate_control.bind(button, false))
 	return button
-
-
-func _make_atlas_texture(region: Rect2) -> AtlasTexture:
-	var atlas := AtlasTexture.new()
-	atlas.atlas = load(UI_DIR + "/player_panel.png") as Texture2D
-	atlas.region = region
-	return atlas
 
 
 func _add_cover_decoration(texture_name: String) -> void:

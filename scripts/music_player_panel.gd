@@ -112,6 +112,7 @@ func configure(font: Font, monitor: PetMusicSessionMonitor, lyrics_service: PetM
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	close_requested.connect(hide_panel)
+	window_input.connect(_on_window_input)
 	_build_ui()
 	size_changed.connect(_resize_immersive_view)
 	_music_info_service = MusicInfoService.new()
@@ -140,6 +141,18 @@ func _process(_delta: float) -> void:
 	_update_lyrics_for_position(int(_session.get("position_ms", 0)))
 	if visible or _fullscreen_active:
 		_update_progress()
+
+
+func _on_window_input(event: InputEvent) -> void:
+	if not _fullscreen_active or not is_instance_valid(_immersive_view):
+		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_ESCAPE, KEY_F11]:
+		_exit_fullscreen()
+		return
+	if event is InputEventMouseButton or event is InputEventMouseMotion:
+		var pointer := _immersive_view.get_native_pointer_position()
+		if _immersive_view.handle_pointer_event(event, pointer):
+			get_viewport().set_input_as_handled()
 
 
 func open_at(screen_position: Vector2i) -> void:
