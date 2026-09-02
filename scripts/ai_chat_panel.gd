@@ -65,6 +65,7 @@ var _key_input: LineEdit
 var _remember_key: CheckBox
 var _settings_status: Label
 var _panel_tween: Tween
+var _button_tweens: Dictionary = {}
 var _history: Array = []
 var _endpoint := ""
 var _model := ""
@@ -108,6 +109,8 @@ func open_at(screen_position: Vector2i) -> void:
 	_prepare_open_animation()
 	show()
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, get_window_id())
+	DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), get_window_id())
 	get_viewport().transparent_bg = true
 	_root.visible = true
 	_root.queue_redraw()
@@ -823,8 +826,26 @@ func _make_hit_button(node_position: Vector2, node_size: Vector2) -> Button:
 	return button
 
 
-func _bind_button_motion(button: Control, _hover_scale: float, _angle_degrees: float) -> void:
+func _bind_button_motion(button: Control, hover_scale: float, angle_degrees: float) -> void:
+	button.pivot_offset = button.size * 0.5
+	button.resized.connect(func() -> void: button.pivot_offset = button.size * 0.5)
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	button.mouse_entered.connect(_animate_button_motion.bind(button, true, hover_scale, angle_degrees))
+	button.mouse_exited.connect(_animate_button_motion.bind(button, false, hover_scale, angle_degrees))
+
+
+func _animate_button_motion(button: Control, hovered: bool, hover_scale: float, angle_degrees: float) -> void:
+	if button is BaseButton and button.disabled:
+		return
+	var key := button.get_instance_id()
+	var previous: Tween = _button_tweens.get(key)
+	if previous and previous.is_valid():
+		previous.kill()
+	var tween := create_tween()
+	_button_tweens[key] = tween
+	tween.set_parallel(true)
+	tween.tween_property(button, "scale", Vector2.ONE * (hover_scale if hovered else 1.0), 0.14).set_trans(Tween.TRANS_BACK if hovered else Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(button, "rotation", deg_to_rad(angle_degrees if hovered else 0.0), 0.14).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 
 
 func _apply_font(control: Control) -> void:

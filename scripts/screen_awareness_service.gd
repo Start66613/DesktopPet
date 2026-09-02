@@ -6,6 +6,7 @@ signal analysis_ready(result: Dictionary)
 signal analysis_failed(message: String)
 signal settings_changed
 signal status_changed
+signal activity_logged(event_type: String, message: String, metadata: Dictionary)
 
 const API_CONFIG_PATH := "user://ai_chat.cfg"
 const VISION_API_CONFIG_PATH := "user://screen_vision.cfg"
@@ -21,6 +22,7 @@ const CHANGE_SCORE_THRESHOLD := 0.035
 const CHANGE_RATIO_THRESHOLD := 0.10
 const MIN_SPEAK_CONFIDENCE := 0.62
 const DEFAULT_DAILY_LIMIT := 24
+const UNLIMITED_DAILY_LIMIT := 0
 const DEFAULT_BLACKLIST := "1password, bitwarden, keepass, passwordsafe, authy, 银行, bank"
 const VALID_MODES := ["auto", "game", "work", "general"]
 const ChangeDetector := preload("res://scripts/screen_change_detector.gd")
@@ -101,6 +103,7 @@ func set_enabled(value: bool) -> void:
 	if _enabled == value:
 		return
 	_enabled = value
+	_log_activity("screen.settings", "画面感知授权开关变更", {"enabled": value})
 	if not _enabled:
 		_auto_enabled = false
 		_cancel_pending_work()
@@ -122,6 +125,7 @@ func set_auto_enabled(value: bool) -> void:
 	if _auto_enabled == next_value:
 		return
 	_auto_enabled = next_value
+	_log_activity("screen.settings", "智能观察开关变更", {"enabled": _auto_enabled})
 	_local_sample_time_left = 0.0
 	_scheduled_time_left = SCHEDULED_OBSERVATION_SECONDS
 	_change_pending = false
@@ -138,6 +142,7 @@ func set_paused(value: bool) -> void:
 	if _paused == value:
 		return
 	_paused = value
+	_log_activity("screen.settings", "画面感知暂停状态变更", {"paused": value})
 	if _paused:
 		_cancel_pending_work()
 		_change_pending = false
@@ -160,6 +165,7 @@ func set_mode(value: String) -> void:
 	if cleaned == _mode:
 		return
 	_mode = cleaned
+	_log_activity("screen.settings", "画面感知模式变更", {"mode": _mode})
 	_save_settings()
 	settings_changed.emit()
 
@@ -169,10 +175,11 @@ func get_daily_limit() -> int:
 
 
 func set_daily_limit(value: int) -> void:
-	var cleaned := clampi(value, 1, 60)
+	var cleaned := UNLIMITED_DAILY_LIMIT if value <= 0 else maxi(1, value)
 	if cleaned == _daily_limit:
 		return
 	_daily_limit = cleaned
+	_log_activity("screen.settings", "每日视觉额度变更", {"daily_limit": _daily_limit, "unlimited": _is_daily_limit_unlimited()})
 	_save_settings()
 	settings_changed.emit()
 
@@ -191,6 +198,7 @@ func set_blacklist_text(value: String) -> void:
 	if cleaned == _blacklist_text:
 		return
 	_blacklist_text = cleaned
+	_log_activity("screen.settings", "隐私名单已更新")
 	_save_settings()
 	settings_changed.emit()
 
@@ -230,7 +238,7 @@ func remembers_vision_key() -> bool:
 
 func set_vision_api_settings(enabled: bool, endpoint: String, model: String, api_key: String, remember_key: bool) -> void:
 	_use_separate_vision_api = enabled
-	_vision_endpoint = endpoint.strip_edges().left(320)
+	_vision_endpoint = _normalize_chat_completions_endpoint(endpoint).left(320)
 	_vision_model = model.strip_edges().left(128)
 	_vision_api_key = api_key.strip_edges().left(512)
 	_remember_vision_key = remember_key
@@ -242,13 +250,14 @@ func get_vision_api_summary() -> String:
 	if _use_separate_vision_api:
 		if _vision_endpoint.is_empty() or _vision_model.is_empty() or _vision_api_key.is_empty():
 			return "独立视觉接口尚未填写完整"
-		if _api_is_text_only({"endpoint": _vision_endpoint, "model": _vision_model}):
-			return "当前仍是 DeepSeek 文本模型，不能识别图片"
+		var warning := _image_capability_warning({"endpoint": _vision_endpoint, "model": _vision_model})
+		if not warning.is_empty():
+			return warning
 		return "画面将交给 %s，聊天模型不受影响" % _vision_model
 	var chat_api := _load_chat_api_settings()
 	if chat_api.is_empty():
 		return "尚未配置可用的聊天或视觉接口"
-	if _api_is_text_only(chat_api):
+	if not _image_capability_warning(chat_api).is_empty():
 		return "聊天使用 DeepSeek；请开启下方独立视觉接口"
 	return "沿用聊天接口中的 %s" % String(chat_api.get("model", "视觉模型"))
 
@@ -298,47 +307,58 @@ func clear_short_term_memory() -> void:
 	_context_memory.clear()
 	_last_scene_signature = ""
 	_set_status("短期画面记忆已清空")
+	_log_activity("screen.memory", "短期画面记忆已清空")
 	settings_changed.emit()
 
 
 func request_analysis(reason := "manual", force := true) -> void:
 	_last_observation_reason = reason
 	if not _enabled:
+		_log_activity("screen.skip", "未授权，跳过画面分析", {"reason": reason})
 		analysis_failed.emit("要先允许我看看当前屏幕哦。")
 		return
 	if _paused:
+		_log_activity("screen.skip", "已暂停，跳过画面分析", {"reason": reason})
 		analysis_failed.emit("我现在闭着眼睛呢，先取消暂停吧。")
 		return
 	if is_busy():
+		_log_activity("screen.skip", "仍在处理上一轮画面分析", {"reason": reason})
 		analysis_failed.emit("我还在认真看刚才的画面呢。")
 		return
 	if _is_sensitive_foreground():
 		_set_status("已跳过隐私名单中的应用")
+		_log_activity("screen.skip", "当前应用命中隐私名单", {"reason": reason})
 		if force:
 			analysis_failed.emit("这个应用在隐私名单里，我就不偷看啦。")
 		return
 	_reset_daily_counter_if_needed()
-	if _daily_request_count >= _daily_limit:
+	if _has_daily_limit() and _daily_request_count >= _daily_limit:
 		_set_status("今日视觉额度已用完 %d/%d" % [_daily_request_count, _daily_limit])
+		_log_activity("screen.skip", "今日视觉额度已用完", {"usage": _daily_request_count, "daily_limit": _daily_limit})
 		if force:
 			analysis_failed.emit("今天看屏幕的次数用完啦，明天再陪你看哦。")
 		return
 	var api := _load_api_settings()
 	if api.is_empty():
+		_log_activity("screen.skip", "视觉接口未配置", {"reason": reason})
 		analysis_failed.emit("视觉接口还没有配好，我暂时看不懂画面呀。")
 		return
-	if _api_is_text_only(api):
-		_set_status("DeepSeek 仅用于聊天，尚未配置视觉模型")
-		analysis_failed.emit("DeepSeek 现在负责陪你聊天，还不会看图片哦，请在“隐私与接口”里配置视觉模型。")
+	var capability_warning := _image_capability_warning(api)
+	if not capability_warning.is_empty():
+		_set_status(capability_warning)
+		_log_activity("screen.skip", capability_warning, {"reason": reason})
+		analysis_failed.emit(capability_warning)
 		return
 	_capture_pending = true
 	_set_status("正在取 3 个短暂关键帧……")
+	_log_activity("screen.capture.start", "开始截取画面关键帧", {"reason": reason})
 	analysis_started.emit()
 	var keyframes := await _capture_keyframes()
 	_capture_pending = false
 	if _paused or not _enabled:
 		return
 	if keyframes.is_empty():
+		_log_activity("screen.capture.empty", "没有截到可用画面", {"reason": reason})
 		analysis_failed.emit("我刚才眨了下眼，没截到屏幕画面，再试一次吧。")
 		return
 	_send_analysis_request(api, keyframes, reason)
@@ -349,8 +369,9 @@ func _evaluate_local_screen_change() -> void:
 	if api.is_empty():
 		_set_status("视觉接口尚未配置，未读取屏幕")
 		return
-	if _api_is_text_only(api):
-		_set_status("DeepSeek 仅用于聊天，未读取屏幕")
+	var capability_warning := _image_capability_warning(api)
+	if not capability_warning.is_empty():
+		_set_status(capability_warning)
 		return
 	if _is_sensitive_foreground():
 		_change_pending = false
@@ -455,9 +476,19 @@ func _send_analysis_request(api: Dictionary, frames: Array[PackedByteArray], rea
 	_scheduled_time_left = SCHEDULED_OBSERVATION_SECONDS
 	_save_settings()
 	_set_status("画面已上传，正在理解当前任务……")
+	_log_activity("screen.ai.start", "画面已发送给视觉模型", {
+		"reason": reason,
+		"frame_count": frames.size(),
+		"model": String(api.get("model", "")),
+		"source": String(api.get("source", "")),
+		"usage": _daily_request_count,
+		"daily_limit": _daily_limit,
+		"unlimited": _is_daily_limit_unlimited()
+	})
 	var error := _request.request(String(api["endpoint"]), headers, HTTPClient.METHOD_POST, JSON.stringify(payload))
 	if error != OK:
 		_request_pending = false
+		_log_activity("screen.ai.error", "视觉请求启动失败", {"error": error})
 		analysis_failed.emit("我没能把画面看清楚，网络好像晃了一下。")
 
 
@@ -481,25 +512,31 @@ func _build_user_prompt(reason: String) -> String:
 
 func _on_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	_request_pending = false
+	_log_activity("screen.ai.response", "视觉模型返回结果", {"result": result, "status": response_code})
 	if _paused or not _enabled:
 		return
 	if result != HTTPRequest.RESULT_SUCCESS:
 		_set_status("网络中断，本次未完成分析")
+		_log_activity("screen.ai.error", "视觉请求网络中断")
 		analysis_failed.emit("网络刚才断了一下，我没看清屏幕。")
 		return
-	var parsed = JSON.parse_string(body.get_string_from_utf8())
+	var body_text := body.get_string_from_utf8()
+	var parsed = JSON.parse_string(body_text)
 	if response_code < 200 or response_code >= 300:
-		var friendly := _friendly_api_error(response_code, parsed)
+		var friendly := _friendly_api_error(response_code, parsed, body_text)
 		_set_status(friendly)
+		_log_activity("screen.ai.error", friendly, {"status": response_code})
 		analysis_failed.emit(friendly)
 		return
 	var awareness := _extract_awareness(parsed)
 	if awareness.is_empty():
 		_set_status("模型返回格式不完整")
+		_log_activity("screen.ai.rejected", "视觉模型返回格式不完整")
 		analysis_failed.emit("我看懂了一点，但回答格式有点乱，换个视觉模型会更稳哦。")
 		return
 	var normalized := _normalize_awareness(awareness)
 	if normalized.is_empty():
+		_log_activity("screen.ai.rejected", "视觉模型没有识别出可用信息")
 		analysis_failed.emit("这组画面里暂时没有识别出可用信息。")
 		return
 	_last_analysis_at = Time.get_unix_time_from_system()
@@ -512,6 +549,7 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 			"reason": _last_observation_reason, "uploaded": true
 		}
 		_set_status("模型识别为敏感画面，内容未记忆")
+		_log_activity("screen.ai.sensitive", "视觉模型识别为敏感画面")
 		analysis_ready.emit(get_last_result())
 		return
 
@@ -519,6 +557,13 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 	_context_memory.remember(normalized)
 	_last_result = normalized
 	_set_status("理解为：%s · 置信度 %d%%" % [String(normalized.get("activity", "当前任务")), roundi(float(normalized.get("confidence", 0.0)) * 100.0)])
+	_log_activity("screen.ai.ready", "画面理解完成", {
+		"scene_type": String(normalized.get("scene_type", "other")),
+		"event": String(normalized.get("event", "none")),
+		"confidence": float(normalized.get("confidence", 0.0)),
+		"importance": float(normalized.get("importance", 0.0)),
+		"should_speak": bool(normalized.get("should_speak", false))
+	})
 	analysis_ready.emit(get_last_result())
 
 
@@ -589,7 +634,7 @@ func _scene_signature(result: Dictionary) -> String:
 
 func _can_start_automatic_request() -> bool:
 	_reset_daily_counter_if_needed()
-	if _daily_request_count >= _daily_limit or _is_sensitive_foreground():
+	if (_has_daily_limit() and _daily_request_count >= _daily_limit) or _is_sensitive_foreground():
 		return false
 	return Time.get_unix_time_from_system() - _last_auto_request_at >= AUTO_REQUEST_COOLDOWN
 
@@ -610,7 +655,7 @@ func _load_api_settings() -> Dictionary:
 	if _use_separate_vision_api:
 		if _vision_endpoint.is_empty() or _vision_model.is_empty() or _vision_api_key.is_empty():
 			return {}
-		return {"endpoint": _vision_endpoint, "model": _vision_model, "key": _vision_api_key, "source": "vision"}
+		return {"endpoint": _normalize_chat_completions_endpoint(_vision_endpoint), "model": _vision_model, "key": _vision_api_key, "source": "vision"}
 	return _load_chat_api_settings()
 
 
@@ -620,7 +665,7 @@ func _load_chat_api_settings() -> Dictionary:
 	var config := ConfigFile.new()
 	if config.load(API_CONFIG_PATH) != OK:
 		return {}
-	var endpoint := String(config.get_value("api", "endpoint", "")).strip_edges()
+	var endpoint := _normalize_chat_completions_endpoint(String(config.get_value("api", "endpoint", "")))
 	var chat_model := String(config.get_value("api", "model", "")).strip_edges()
 	var key := String(config.get_value("api", "key", "")).strip_edges()
 	var model := _model_override if not _model_override.is_empty() else chat_model
@@ -630,9 +675,55 @@ func _load_chat_api_settings() -> Dictionary:
 
 
 func _api_is_text_only(api: Dictionary) -> bool:
+	return not _image_capability_warning(api).is_empty()
+
+
+func _image_capability_warning(api: Dictionary) -> String:
 	var endpoint := String(api.get("endpoint", "")).to_lower()
 	var model := String(api.get("model", "")).to_lower()
-	return endpoint.contains("api.deepseek.com") or model.begins_with("deepseek")
+	if endpoint.contains("api.deepseek.com") and not _model_looks_visual(model):
+		return "DeepSeek 聊天模型还不会看图片；视觉模型请填 deepseek-v4-flash-vision-exp。"
+	if model.begins_with("deepseek") and not _model_looks_visual(model):
+		return "这个 DeepSeek 模型是文字模型，不能识别屏幕图片。"
+	if endpoint.contains("api.siliconflow.cn") and not _model_looks_visual(model):
+		return "这个 SiliconFlow 模型像是文字模型，换 Qwen/Qwen3-VL-8B-Instruct 试试。"
+	if model.contains("embedding") or model.contains("reranker"):
+		return "这个模型不是对话视觉模型，换 Qwen/Qwen3-VL-8B-Instruct 试试。"
+	return ""
+
+
+func _model_looks_visual(model: String) -> bool:
+	var normalized := model.to_lower()
+	return normalized.contains("vision") \
+		or normalized.contains("-vl") \
+		or normalized.contains("/vl") \
+		or normalized.contains("qwen3-vl") \
+		or normalized.contains("qwen2-vl") \
+		or normalized.contains("qwen2.5-vl") \
+		or normalized.contains("internvl") \
+		or normalized.contains("glm-4.5v") \
+		or normalized.contains("gpt-4o") \
+		or normalized.contains("gpt-4.1") \
+		or normalized.contains("gemini") \
+		or normalized.contains("ocr")
+
+
+func _normalize_chat_completions_endpoint(endpoint: String) -> String:
+	var cleaned := endpoint.strip_edges()
+	if cleaned.is_empty():
+		return ""
+	if cleaned.ends_with("/"):
+		cleaned = cleaned.trim_suffix("/")
+	var lowered := cleaned.to_lower()
+	if lowered.ends_with("/chat/completions"):
+		return cleaned
+	if lowered.ends_with("/v1"):
+		return cleaned + "/chat/completions"
+	if lowered.ends_with("/v4"):
+		return cleaned + "/chat/completions"
+	if lowered.find("/chat/completions") == -1 and (lowered.contains("api.siliconflow.cn") or lowered.contains("api.deepseek.com") or lowered.contains("open.bigmodel.cn")):
+		return cleaned + "/chat/completions"
+	return cleaned
 
 
 func _load_vision_api_settings() -> void:
@@ -642,7 +733,7 @@ func _load_vision_api_settings() -> void:
 	if config.load(VISION_API_CONFIG_PATH) != OK:
 		return
 	_use_separate_vision_api = bool(config.get_value("vision_api", "enabled", false))
-	_vision_endpoint = String(config.get_value("vision_api", "endpoint", "")).strip_edges()
+	_vision_endpoint = _normalize_chat_completions_endpoint(String(config.get_value("vision_api", "endpoint", "")))
 	_vision_model = String(config.get_value("vision_api", "model", "")).strip_edges()
 	_remember_vision_key = bool(config.get_value("vision_api", "remember_key", true))
 	_vision_api_key = String(config.get_value("vision_api", "key", "")).strip_edges()
@@ -658,18 +749,18 @@ func _save_vision_api_settings() -> void:
 	config.save(VISION_API_CONFIG_PATH)
 
 
-func _friendly_api_error(response_code: int, parsed) -> String:
-	var detail := ""
+func _friendly_api_error(response_code: int, parsed, body_text := "") -> String:
+	var detail := body_text.to_lower()
 	if parsed is Dictionary:
 		var error_data = parsed.get("error", {})
 		if error_data is Dictionary:
-			detail = String(error_data.get("message", "")).to_lower()
+			detail = (detail + " " + String(error_data.get("message", "")).to_lower()).strip_edges()
 	if response_code == 401:
 		return "我没认出这把 API 钥匙，先检查一下设置吧。"
 	if response_code == 403:
 		return "这个模型还没有看图权限，换个视觉模型试试吧。"
 	if response_code == 404:
-		return "找不到这个视觉模型，检查一下模型名吧。"
+		return "找不到接口或模型，确认地址是 /chat/completions，模型名是视觉模型。"
 	if response_code == 429:
 		return "我现在有点忙，过一会儿再看屏幕吧。"
 	if detail.contains("image") or detail.contains("vision") or detail.contains("multimodal"):
@@ -752,7 +843,8 @@ func _load_settings() -> void:
 	_mode = String(config.get_value("screen_awareness", "mode", "auto"))
 	if not VALID_MODES.has(_mode):
 		_mode = "auto"
-	_daily_limit = clampi(int(config.get_value("screen_awareness", "daily_limit", DEFAULT_DAILY_LIMIT)), 1, 60)
+	var saved_limit := int(config.get_value("screen_awareness", "daily_limit", DEFAULT_DAILY_LIMIT))
+	_daily_limit = UNLIMITED_DAILY_LIMIT if saved_limit <= 0 else maxi(1, saved_limit)
 	_blacklist_text = String(config.get_value("screen_awareness", "blacklist", DEFAULT_BLACKLIST)).strip_edges()
 	_model_override = String(config.get_value("screen_awareness", "model", "")).strip_edges()
 	_daily_date = String(config.get_value("screen_awareness", "daily_date", ""))
@@ -772,3 +864,15 @@ func _save_settings() -> void:
 	config.set_value("screen_awareness", "daily_date", _daily_date)
 	config.set_value("screen_awareness", "daily_request_count", _daily_request_count)
 	config.save(SETTINGS_PATH)
+
+
+func _has_daily_limit() -> bool:
+	return _daily_limit > UNLIMITED_DAILY_LIMIT
+
+
+func _is_daily_limit_unlimited() -> bool:
+	return _daily_limit <= UNLIMITED_DAILY_LIMIT
+
+
+func _log_activity(event_type: String, message: String, metadata: Dictionary = {}) -> void:
+	activity_logged.emit(event_type, message, metadata)

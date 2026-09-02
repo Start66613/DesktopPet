@@ -4,6 +4,7 @@ class_name PetProactiveCompanion
 signal message_ready(text: String, emoji: String)
 signal enabled_changed(enabled: bool)
 signal settings_changed
+signal activity_logged(event_type: String, message: String, metadata: Dictionary)
 
 const API_CONFIG_PATH := "user://ai_chat.cfg"
 const SETTINGS_PATH := "user://companion_settings.cfg"
@@ -141,6 +142,7 @@ func set_enabled(value: bool) -> void:
 	if _enabled == value:
 		return
 	_enabled = value
+	_log_activity("companion.settings", "主动陪伴开关变更", {"enabled": value})
 	if not _enabled:
 		if _request_pending and _request:
 			_request.cancel_request()
@@ -166,6 +168,7 @@ func set_frequency_minutes(value: float) -> void:
 	if is_equal_approx(next_value, _frequency_minutes):
 		return
 	_frequency_minutes = next_value
+	_log_activity("companion.settings", "主动陪伴频率变更", {"seconds": roundi(_frequency_minutes * 60.0)})
 	_schedule_next_thought()
 	_save_settings()
 	settings_changed.emit()
@@ -179,6 +182,7 @@ func set_foreground_monitoring_enabled(value: bool) -> void:
 	if _foreground_monitoring_enabled == value:
 		return
 	_foreground_monitoring_enabled = value
+	_log_activity("companion.settings", "前台应用感知开关变更", {"enabled": value})
 	_app_reference_turns = APP_REFERENCE_INTERVAL
 	if not value:
 		_last_foreground_label = ""
@@ -195,12 +199,14 @@ func set_quiet_hours_enabled(value: bool) -> void:
 	if _quiet_hours_enabled == value:
 		return
 	_quiet_hours_enabled = value
+	_log_activity("companion.settings", "夜间安静开关变更", {"enabled": value})
 	_save_settings()
 	settings_changed.emit()
 
 
 func request_thought_now() -> void:
 	if _enabled:
+		_log_activity("companion.manual", "用户手动请求主动陪伴")
 		_force_next_speech = true
 		_manual_request_pending = true
 		_time_until_thought = 0.0
@@ -209,6 +215,7 @@ func request_thought_now() -> void:
 func request_music_thought_now() -> void:
 	if not _enabled:
 		return
+	_log_activity("companion.music", "音乐陪伴请求 AI 感想")
 	_force_next_speech = true
 	_manual_request_pending = false
 	_music_reference_turns = MUSIC_REFERENCE_INTERVAL
@@ -219,6 +226,7 @@ func clear_memory() -> void:
 	_recent_events.clear()
 	_recent_lines.clear()
 	_last_spoke_at = 0.0
+	_log_activity("companion.memory", "主动陪伴记忆已清空")
 	_save_memory()
 	settings_changed.emit()
 
@@ -245,6 +253,7 @@ func note_interaction(description: String) -> void:
 	_recent_events.append(event_text)
 	_trim_array(_recent_events, MAX_RECENT_EVENTS)
 	_save_memory()
+	_log_activity("companion.interaction", clean_description)
 
 
 func _request_thought() -> void:
@@ -255,6 +264,7 @@ func _request_thought() -> void:
 	_request_should_reference_music = _has_music_context() and (_force_next_speech or _music_reference_turns >= MUSIC_REFERENCE_INTERVAL)
 	if Time.get_unix_time_from_system() < _api_backoff_until:
 		_debug_log("request skipped: API cooling down")
+		_log_activity("companion.ai.skip", "AI 陪伴请求被冷却时间跳过")
 		if _emit_local_fallback(true):
 			return
 		_schedule_failure_retry()
@@ -262,6 +272,7 @@ func _request_thought() -> void:
 	var api := _load_api_settings()
 	if api.is_empty():
 		_debug_log("request skipped: API configuration missing")
+		_log_activity("companion.ai.skip", "AI 陪伴接口未配置，使用本地兜底")
 		if _emit_local_fallback(true):
 			return
 		_schedule_failure_retry()
@@ -269,6 +280,12 @@ func _request_thought() -> void:
 
 	_request_pending = true
 	_debug_log("request started manual=%s app_context=%s music_context=%s" % [_manual_request_pending, _request_should_reference_app, _request_should_reference_music])
+	_log_activity("companion.ai.start", "开始生成主动陪伴台词", {
+		"manual": _manual_request_pending,
+		"app_context": _request_should_reference_app,
+		"music_context": _request_should_reference_music,
+		"model": String(api.get("model", ""))
+	})
 	var context_prompt := _build_context_prompt()
 	var payload := {
 		"model": api["model"],
@@ -289,6 +306,7 @@ func _request_thought() -> void:
 	if error != OK:
 		_request_pending = false
 		_debug_log("request start failed error=%d" % error)
+		_log_activity("companion.ai.error", "主动陪伴请求启动失败", {"error": error})
 		_handle_failed_thought(API_FAILURE_BACKOFF_SECONDS)
 
 
@@ -420,6 +438,7 @@ func _build_context_prompt() -> String:
 func _on_request_completed(result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	_request_pending = false
 	_debug_log("request completed result=%d status=%d" % [result, response_code])
+	_log_activity("companion.ai.response", "主动陪伴接口返回", {"result": result, "status": response_code})
 	if not _enabled:
 		_manual_request_pending = false
 		return
@@ -443,10 +462,12 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 	var thought := _parse_thought(String(message_data.get("content", "")))
 	if thought.is_empty():
 		_debug_log("response rejected: invalid companion JSON")
+		_log_activity("companion.ai.rejected", "主动陪伴返回格式无效")
 		_handle_failed_thought(API_FAILURE_BACKOFF_SECONDS)
 		return
 	if not bool(thought.get("speak", false)):
 		_debug_log("response chose silence")
+		_log_activity("companion.ai.silence", "AI 判断这轮保持安静")
 		if _emit_local_fallback(_frequency_minutes * 60.0 <= 30.0):
 			return
 		_schedule_silent_retry()
@@ -456,6 +477,7 @@ func _on_request_completed(result: int, response_code: int, _headers: PackedStri
 	var emoji := String(thought.get("emoji", "")).strip_edges()
 	if _should_suppress_dog_topic() and _is_dog_related_text(text):
 		_debug_log("response rejected: dog topic while dog is at home")
+		_log_activity("companion.ai.rejected", "小狗回窝时过滤了小狗相关台词")
 		if _emit_local_fallback(true):
 			return
 		_schedule_silent_retry()
@@ -509,6 +531,7 @@ func _emit_local_fallback(allow_automatic: bool = false) -> bool:
 			fallback = candidate
 			break
 	var text := String(fallback["text"])
+	_log_activity("companion.fallback", "使用本地陪伴兜底台词", {"source": source})
 	_deliver_or_queue_message(text, String(fallback["emoji"]), source)
 	return true
 
@@ -521,6 +544,7 @@ func _deliver_or_queue_message(text: String, emoji: String, source: String) -> v
 	if not _available:
 		_queued_message = {"text": text, "emoji": emoji, "source": source}
 		_debug_log("message queued source=%s" % source)
+		_log_activity("companion.message.queue", "桌宠暂时不可说话，台词已排队", {"source": source})
 		return
 	_emit_message_now(text, emoji, source)
 
@@ -541,6 +565,7 @@ func _emit_message_now(text: String, emoji: String, source: String) -> void:
 	_save_memory()
 	message_ready.emit(decorated_text, emoji)
 	_debug_log("message emitted source=%s length=%d kaomoji=%s" % [source, decorated_text.length(), decorated_text != text])
+	_log_activity("companion.message.emit", decorated_text, {"source": source, "emoji": emoji})
 	if source.ends_with("_app"):
 		_app_reference_turns = 0
 	elif _has_app_context():
@@ -666,6 +691,10 @@ func _debug_log(message: String) -> void:
 		if debug_file:
 			debug_file.seek_end()
 			debug_file.store_line(line)
+
+
+func _log_activity(event_type: String, message: String, metadata: Dictionary = {}) -> void:
+	activity_logged.emit(event_type, message, metadata)
 
 
 func _parse_thought(content: String) -> Dictionary:

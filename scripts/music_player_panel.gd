@@ -1,7 +1,7 @@
 extends Window
 class_name PetMusicPlayerPanel
 
-signal windowed_restore_requested(window_position: Vector2i)
+signal windowed_restore_requested(window_position: Vector2i, cover_texture: Texture2D)
 
 const UI_DIR := "res://assets/music/runtime/ui"
 const BASE_SIZE := Vector2(1678, 951)
@@ -150,7 +150,7 @@ func _on_window_input(event: InputEvent) -> void:
 		_exit_fullscreen()
 		return
 	if event is InputEventMouseButton or event is InputEventMouseMotion:
-		var pointer := _immersive_view.get_native_pointer_position()
+		var pointer := _event_pointer_position(event)
 		if _immersive_view.handle_pointer_event(event, pointer):
 			get_viewport().set_input_as_handled()
 
@@ -165,6 +165,8 @@ func open_at(screen_position: Vector2i) -> void:
 	_on_session_updated(_monitor.get_session() if _monitor else {"found": false})
 	show()
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, get_window_id())
+	DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), get_window_id())
 	get_viewport().transparent_bg = true
 	_root.visible = true
 	grab_focus()
@@ -202,10 +204,10 @@ func _build_ui() -> void:
 	drag_handle.gui_input.connect(_on_drag_handle_gui_input)
 	_root.add_child(drag_handle)
 
-	var minimize_button := _make_atlas_button(Rect2(1452, 42, 112, 112), Rect2(1452, 42, 112, 112), "收起")
+	var minimize_button := _make_hit_button(Rect2(1452, 42, 112, 112), "收起")
 	minimize_button.pressed.connect(hide_panel)
 	_root.add_child(minimize_button)
-	var close_button := _make_atlas_button(Rect2(1558, 40, 112, 116), Rect2(1558, 40, 112, 116), "关闭")
+	var close_button := _make_hit_button(Rect2(1558, 40, 112, 116), "关闭")
 	close_button.pressed.connect(hide_panel)
 	_root.add_child(close_button)
 
@@ -350,11 +352,20 @@ func _create_immersive_view() -> void:
 	_immersive_view.previous_requested.connect(_on_previous_pressed)
 	_immersive_view.play_pause_requested.connect(_on_play_pause_pressed)
 	_immersive_view.next_requested.connect(_on_next_pressed)
-	_immersive_view.mode_requested.connect(_on_mode_pressed)
+	_immersive_view.mode_requested.connect(_on_immersive_mode_requested)
 	_immersive_view.seek_requested.connect(_on_seek_requested)
 	add_child(_immersive_view)
 	_immersive_view.set_native_window_id(get_window_id())
 	_resize_immersive_view()
+
+
+func restore_cover_texture(texture: Texture2D) -> void:
+	if not is_instance_valid(_cover) or texture == null:
+		return
+	_cover.texture = texture
+	_cover.modulate.a = 1.0
+	if is_instance_valid(_immersive_view):
+		_immersive_view.set_cover(texture)
 
 
 func _make_atlas_texture(region: Rect2) -> AtlasTexture:
@@ -427,6 +438,17 @@ func _make_atlas_button(source_region: Rect2, display_rect: Rect2, tooltip: Stri
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	button.mouse_entered.connect(_animate_button.bind(button, Vector2.ONE * 1.075, 0.12))
 	button.mouse_exited.connect(_animate_button.bind(button, Vector2.ONE, 0.14))
+	return button
+
+
+func _make_hit_button(display_rect: Rect2, tooltip: String) -> TextureButton:
+	var button := TextureButton.new()
+	button.position = display_rect.position
+	button.size = display_rect.size
+	button.tooltip_text = tooltip
+	button.focus_mode = Control.FOCUS_NONE
+	button.mouse_filter = Control.MOUSE_FILTER_STOP
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	return button
 
 
@@ -681,6 +703,28 @@ func _on_mode_pressed() -> void:
 		return
 	var current_index := PLAY_MODES.find(_display_mode)
 	var next_mode: String = PLAY_MODES[(current_index + 1) % PLAY_MODES.size()] if current_index >= 0 else "list"
+	_request_play_mode(next_mode)
+
+
+func _on_immersive_mode_requested(mode_hint: String) -> void:
+	if not _monitor:
+		return
+	if mode_hint == "shuffle":
+		if not bool(_session.get("can_shuffle", false)):
+			_status_label.text = "请在%s中切换随机播放" % String(_session.get("source_label", "播放器"))
+			return
+		_request_play_mode("sequential" if _display_mode == "shuffle" else "shuffle")
+		return
+	if not bool(_session.get("can_repeat", false)):
+		_status_label.text = "请在%s中切换循环播放" % String(_session.get("source_label", "播放器"))
+		return
+	var repeat_modes := ["sequential", "list", "single"]
+	var current_index := repeat_modes.find(_display_mode)
+	var next_mode: String = repeat_modes[(current_index + 1) % repeat_modes.size()] if current_index >= 0 else "list"
+	_request_play_mode(next_mode)
+
+
+func _request_play_mode(next_mode: String) -> void:
 	_requested_mode = next_mode
 	_mode_request_until_ms = Time.get_ticks_msec() + 3200
 	_set_mode_visual(next_mode)
@@ -812,9 +856,9 @@ func _enter_fullscreen() -> void:
 		return
 	var main_window := get_tree().root
 	_main_window_was_always_on_top = main_window.always_on_top
-	# The immersive scene owns its own animated pet. Keeping the desktop pet
-	# window on top here creates a duplicated pet (and dog) over the lyrics.
-	main_window.always_on_top = false
+	# Fullscreen is only the music backdrop. The real desktop pet should keep
+	# roaming above it, just like normal desktop mode.
+	main_window.always_on_top = true
 	if not _immersive_view.is_node_ready():
 		await get_tree().process_frame
 		if not _fullscreen_transitioning:
@@ -831,6 +875,9 @@ func _enter_fullscreen() -> void:
 	borderless = true
 	unresizable = true
 	always_on_top = false
+	transparent_bg = false
+	get_viewport().transparent_bg = false
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false, get_window_id())
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, get_window_id())
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, get_window_id())
 	position = screen_position
@@ -850,18 +897,6 @@ func _enter_fullscreen() -> void:
 	DisplayServer.window_set_current_screen(_fullscreen_screen, get_window_id())
 	DisplayServer.window_set_position(screen_position, get_window_id())
 	DisplayServer.window_set_size(immersive_window_size, get_window_id())
-	# Resizing a transparent native subwindow to monitor bounds can clear its
-	# WS_VISIBLE state while Godot still reports visible=true. Toggle once after
-	# the final geometry so Windows registers a real interactive top-level window.
-	_immersive_view.set_native_window_id(DisplayServer.INVALID_WINDOW_ID)
-	hide()
-	await get_tree().process_frame
-	if not _fullscreen_transitioning:
-		return
-	show()
-	await get_tree().process_frame
-	if not _fullscreen_transitioning:
-		return
 	_immersive_view.set_native_window_id(get_window_id())
 	_set_full_mouse_input_region()
 	if not _immersive_window_fills_screen():
@@ -873,8 +908,8 @@ func _enter_fullscreen() -> void:
 	DisplayServer.window_move_to_foreground(get_window_id())
 	grab_focus()
 	_immersive_view.play_enter_transition()
-	main_window.always_on_top = false
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, main_window.get_window_id())
+	main_window.always_on_top = true
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, true, main_window.get_window_id())
 
 
 func _exit_fullscreen() -> void:
@@ -888,13 +923,16 @@ func _exit_fullscreen() -> void:
 	if is_instance_valid(_immersive_view):
 		_immersive_view.visible = false
 		_immersive_view.set_native_window_id(DisplayServer.INVALID_WINDOW_ID)
-	get_tree().root.always_on_top = _main_window_was_always_on_top
+	var main_window := get_tree().root
+	main_window.always_on_top = _main_window_was_always_on_top
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, _main_window_was_always_on_top, main_window.get_window_id())
 	var should_restore_windowed := _player_was_visible_before_fullscreen
+	var cover_texture := _cover.texture if is_instance_valid(_cover) else null
 	_player_was_visible_before_fullscreen = false
 	_main_window_was_always_on_top = false
 	if should_restore_windowed and not windowed_restore_requested.get_connections().is_empty():
 		hide()
-		windowed_restore_requested.emit(_windowed_position)
+		windowed_restore_requested.emit(_windowed_position, cover_texture)
 		queue_free()
 		return
 	# Keep the standalone QA harness working. The game itself connects the signal
@@ -977,15 +1015,11 @@ func _finish_windowed_restore() -> void:
 
 
 func _set_full_mouse_input_region() -> void:
-	var input_size := Vector2(size)
-	if input_size.x <= 1.0 or input_size.y <= 1.0:
+	var window_id := get_window_id()
+	if window_id == DisplayServer.INVALID_WINDOW_ID:
 		return
-	DisplayServer.window_set_mouse_passthrough(PackedVector2Array([
-		Vector2.ZERO,
-		Vector2(0.0, input_size.y),
-		input_size,
-		Vector2(input_size.x, 0.0),
-	]), get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, window_id)
+	DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), window_id)
 
 func _exit_tree() -> void:
 	_immersive_view = null
@@ -1001,6 +1035,12 @@ func _resize_immersive_view() -> void:
 		_immersive_view._layout()
 	else:
 		_immersive_view.call_deferred("_layout")
+
+
+func _event_pointer_position(event: InputEvent) -> Vector2:
+	if event is InputEventMouse:
+		return (event as InputEventMouse).position
+	return _immersive_view.get_native_pointer_position() if is_instance_valid(_immersive_view) else Vector2.ZERO
 func _immersive_window_fills_screen() -> bool:
 	var expected := DisplayServer.screen_get_size(_fullscreen_screen)
 	var actual := DisplayServer.window_get_size(get_window_id())

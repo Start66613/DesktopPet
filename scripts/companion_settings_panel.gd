@@ -38,6 +38,8 @@ var _screen_detail: Label
 
 var _blacklist_input: LineEdit
 var _limit_slider: HSlider
+var _limit_input: LineEdit
+var _limit_unlimited_button: Button
 var _limit_label: Label
 var _vision_api_toggle: Button
 var _vision_endpoint_input: LineEdit
@@ -68,6 +70,7 @@ func configure(font: Font, companion: PetProactiveCompanion, monitor: PetForegro
 
 func _ready() -> void:
 	close_requested.connect(hide_panel)
+	window_input.connect(_on_window_input)
 	_build_ui()
 	if _companion:
 		_companion.settings_changed.connect(_refresh_controls)
@@ -83,15 +86,15 @@ func _ready() -> void:
 
 
 func open_at(screen_position: Vector2i, page := "companion") -> void:
+	_reset_window_state()
 	position = screen_position
-	mode = Window.MODE_WINDOWED
 	_show_page(page)
 	_refresh_controls()
 	show()
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, get_window_id())
-	get_viewport().transparent_bg = true
+	_reset_window_state()
 	_root.visible = true
 	grab_focus()
+	DisplayServer.window_move_to_foreground(get_window_id())
 	_play_open_animation()
 
 
@@ -99,6 +102,10 @@ func hide_panel() -> void:
 	_save_privacy_settings()
 	_refresh_secret_clicks = 0
 	_refresh_secret_last_click_ms = 0
+	var window_id := get_window_id()
+	if window_id != DisplayServer.INVALID_WINDOW_ID:
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, window_id)
+		DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), window_id)
 	hide()
 
 
@@ -127,12 +134,12 @@ func _build_ui() -> void:
 	_root.add_child(background)
 
 	var drag_handle := Control.new()
-	drag_handle.position = Vector2(45, 14)
-	drag_handle.size = Vector2(555, 62)
+	drag_handle.position = Vector2(32, 12)
+	drag_handle.size = Vector2(618, 92)
 	drag_handle.mouse_filter = Control.MOUSE_FILTER_STOP
 	drag_handle.mouse_default_cursor_shape = Control.CURSOR_MOVE
 	drag_handle.gui_input.connect(_on_drag_handle_gui_input)
-	drag_handle.z_index = 40
+	drag_handle.z_index = 44
 	_root.add_child(drag_handle)
 
 	var title_label := _make_label("陪伴设置", Vector2(245, 64), Vector2(250, 34), 22, Color("714b57"), HORIZONTAL_ALIGNMENT_CENTER)
@@ -311,14 +318,26 @@ func _build_privacy_page() -> void:
 	page.add_child(_make_label("每日视觉额度", Vector2(62, 204), Vector2(105, 34), 14, Color("704d57")))
 	_limit_slider = HSlider.new()
 	_limit_slider.position = Vector2(171, 204)
-	_limit_slider.size = Vector2(330, 30)
-	_limit_slider.min_value = 1
-	_limit_slider.max_value = 60
+	_limit_slider.size = Vector2(216, 30)
+	_limit_slider.min_value = 0
+	_limit_slider.max_value = 300
 	_limit_slider.step = 1
+	_limit_slider.tooltip_text = "0 表示不限量，滑条最高到 300，输入框可填更高"
 	_style_slider(_limit_slider)
 	_limit_slider.value_changed.connect(_on_limit_changed)
 	page.add_child(_limit_slider)
-	_limit_label = _make_label("", Vector2(515, 204), Vector2(159, 34), 13, Color("a25e6c"), HORIZONTAL_ALIGNMENT_RIGHT)
+	_limit_input = LineEdit.new()
+	_limit_input.position = Vector2(399, 199)
+	_limit_input.size = Vector2(74, 36)
+	_limit_input.placeholder_text = "次数"
+	_limit_input.text_submitted.connect(func(_value: String) -> void: _apply_limit_from_input())
+	_limit_input.focus_exited.connect(_apply_limit_from_input)
+	_style_input_control(_limit_input)
+	page.add_child(_limit_input)
+	_limit_unlimited_button = _make_small_button("不限量", Vector2(486, 199), Vector2(82, 36))
+	_limit_unlimited_button.pressed.connect(_on_unlimited_limit_pressed)
+	page.add_child(_limit_unlimited_button)
+	_limit_label = _make_label("", Vector2(574, 204), Vector2(100, 34), 12, Color("a25e6c"), HORIZONTAL_ALIGNMENT_RIGHT)
 	page.add_child(_limit_label)
 
 	page.add_child(_make_label("独立视觉接口", Vector2(62, 249), Vector2(112, 34), 14, Color("654650")))
@@ -339,7 +358,7 @@ func _build_privacy_page() -> void:
 	_vision_endpoint_input = LineEdit.new()
 	_vision_endpoint_input.position = Vector2(154, 293)
 	_vision_endpoint_input.size = Vector2(520, 36)
-	_vision_endpoint_input.placeholder_text = "https://.../chat/completions"
+	_vision_endpoint_input.placeholder_text = "https://api.siliconflow.cn/v1/chat/completions"
 	_style_input_control(_vision_endpoint_input)
 	page.add_child(_vision_endpoint_input)
 
@@ -347,7 +366,7 @@ func _build_privacy_page() -> void:
 	_vision_model_input = LineEdit.new()
 	_vision_model_input.position = Vector2(154, 337)
 	_vision_model_input.size = Vector2(520, 36)
-	_vision_model_input.placeholder_text = "填写支持图片输入的模型名称"
+	_vision_model_input.placeholder_text = "Qwen/Qwen3-VL-8B-Instruct"
 	_style_input_control(_vision_model_input)
 	page.add_child(_vision_model_input)
 
@@ -431,8 +450,11 @@ func _refresh_screen_controls() -> void:
 		_screen_detail.text = "最近：%s · %s · 短期记忆 %d 条" % [String(result.get("activity", "已完成分析")), _reason_text(String(result.get("reason", "manual"))), _screen_service.get_short_term_memory_count()]
 	if not _blacklist_input.has_focus():
 		_blacklist_input.text = _screen_service.get_blacklist_text()
-	_limit_slider.set_value_no_signal(_screen_service.get_daily_limit())
-	_limit_label.text = "今日 %d / %d 次" % [_screen_service.get_daily_usage(), _screen_service.get_daily_limit()]
+	var daily_limit := _screen_service.get_daily_limit()
+	_limit_slider.set_value_no_signal(0 if daily_limit <= 0 else minf(float(daily_limit), _limit_slider.max_value))
+	if not _limit_input.has_focus():
+		_limit_input.text = "" if daily_limit <= 0 else str(daily_limit)
+	_limit_label.text = _format_daily_limit_label()
 	_vision_api_toggle.set_pressed_no_signal(_screen_service.uses_separate_vision_api())
 	_style_toggle(_vision_api_toggle, _vision_api_toggle.button_pressed)
 	if not _vision_endpoint_input.has_focus():
@@ -532,7 +554,35 @@ func _on_screen_mode_selected(index: int) -> void:
 
 func _on_limit_changed(value: float) -> void:
 	_screen_service.set_daily_limit(roundi(value))
-	_limit_label.text = "今日 %d / %d 次" % [_screen_service.get_daily_usage(), roundi(value)]
+	if not _limit_input.has_focus():
+		_limit_input.text = "" if roundi(value) <= 0 else str(roundi(value))
+	_limit_label.text = _format_daily_limit_label()
+
+
+func _apply_limit_from_input() -> void:
+	if not _screen_service or not is_instance_valid(_limit_input):
+		return
+	var raw := _limit_input.text.strip_edges().to_lower()
+	var next_limit := 0
+	if raw.is_empty() or raw in ["0", "不限", "不限量", "无限", "unlimited"]:
+		next_limit = 0
+	elif raw.is_valid_int():
+		next_limit = maxi(1, int(raw))
+	else:
+		_limit_input.text = str(_screen_service.get_daily_limit()) if _screen_service.get_daily_limit() > 0 else ""
+		_limit_label.text = "填数字或不限"
+		return
+	_screen_service.set_daily_limit(next_limit)
+	_limit_slider.set_value_no_signal(0 if next_limit <= 0 else minf(float(next_limit), _limit_slider.max_value))
+	_limit_input.text = "" if next_limit <= 0 else str(next_limit)
+	_limit_label.text = _format_daily_limit_label()
+
+
+func _on_unlimited_limit_pressed() -> void:
+	_screen_service.set_daily_limit(0)
+	_limit_slider.set_value_no_signal(0)
+	_limit_input.text = ""
+	_limit_label.text = _format_daily_limit_label()
 
 
 func _on_vision_api_toggled(value: bool) -> void:
@@ -571,11 +621,15 @@ func _on_clear_screen_memory_pressed() -> void:
 
 
 func _on_look_now_pressed() -> void:
+	call_deferred("_start_manual_screen_analysis")
+
+
+func _start_manual_screen_analysis() -> void:
 	_save_privacy_settings()
 	if not _screen_service.is_enabled():
 		_screen_status.text = "先开启画面授权哦"
 		return
-	hide()
+	hide_panel()
 	await get_tree().create_timer(0.28).timeout
 	_screen_service.request_analysis("manual", true)
 
@@ -613,6 +667,37 @@ func _on_drag_handle_gui_input(event: InputEvent) -> void:
 		DisplayServer.window_start_drag(get_window_id())
 
 
+func _on_window_input(event: InputEvent) -> void:
+	if not visible or not (event is InputEventMouseButton):
+		return
+	var mouse_event := event as InputEventMouseButton
+	if mouse_event.button_index != MOUSE_BUTTON_LEFT or not mouse_event.pressed:
+		return
+	if mouse_event.position.y > 98.0 or mouse_event.position.x > 610.0:
+		return
+	DisplayServer.window_start_drag(get_window_id())
+
+
+func _reset_window_state() -> void:
+	mode = Window.MODE_WINDOWED
+	borderless = true
+	unresizable = true
+	always_on_top = false
+	transparent_bg = true
+	get_viewport().transparent_bg = true
+	if is_instance_valid(_root):
+		_root.visible = true
+		_root.modulate = Color.WHITE
+		_root.scale = Vector2.ONE
+		_root.position = Vector2.ZERO
+	var window_id := get_window_id()
+	if window_id != DisplayServer.INVALID_WINDOW_ID:
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, true, window_id)
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, window_id)
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, window_id)
+		DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), window_id)
+
+
 func _play_open_animation() -> void:
 	if _panel_tween and _panel_tween.is_valid():
 		_panel_tween.kill()
@@ -621,6 +706,12 @@ func _play_open_animation() -> void:
 	_panel_tween = create_tween().set_parallel(true)
 	_panel_tween.tween_property(_root, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	_panel_tween.tween_property(_root, "position", Vector2.ZERO, 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+
+
+func _format_daily_limit_label() -> String:
+	var usage := _screen_service.get_daily_usage() if _screen_service else 0
+	var daily_limit := _screen_service.get_daily_limit() if _screen_service else 0
+	return "今日 %d / 不限" % usage if daily_limit <= 0 else "今日 %d / %d" % [usage, daily_limit]
 
 
 func _make_label(text_value: String, node_position: Vector2, node_size: Vector2, font_size: int, color: Color, alignment := HORIZONTAL_ALIGNMENT_LEFT) -> Label:

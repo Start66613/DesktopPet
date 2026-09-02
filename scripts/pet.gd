@@ -26,6 +26,9 @@ const SLEEP_TURN_MAX_INTERVAL := 8.0
 const SLEEP_TURN_CHANCE := 0.62
 const SLEEP_TURN_MIN_HOLD := 0.85
 const SLEEP_TURN_MAX_HOLD := 1.25
+const AUTO_IDLE_ACTIVITY_CHANCE := 0.14
+const AUTO_IDLE_ACTIVITY_COOLDOWN_MIN := 35.0
+const AUTO_IDLE_ACTIVITY_COOLDOWN_MAX := 70.0
 const DRAG_CURSOR_ANCHOR_OFFSET := Vector2(0, -30)
 const DRAG_SWAY_MAX := 0.36
 const DRAG_SWAY_RESPONSE := 16.0
@@ -91,6 +94,7 @@ const MusicLyricsService := preload("res://scripts/music_lyrics_service.gd")
 const MusicPlayerPanel := preload("res://scripts/music_player_panel.gd")
 const CompanionSettingsPanel := preload("res://scripts/companion_settings_panel.gd")
 const ScreenAwarenessService := preload("res://scripts/screen_awareness_service.gd")
+const ActivityLogger := preload("res://scripts/pet_activity_logger.gd")
 const BadmintonGamePanel := preload("res://scripts/badminton_game_panel.gd")
 const DogCompanion := preload("res://scripts/dog_companion.gd")
 const DogHomePanel := preload("res://scripts/dog_home_panel.gd")
@@ -165,6 +169,7 @@ var _music_lyrics_service: PetMusicLyricsService
 var _music_player_panel: PetMusicPlayerPanel
 var _companion_settings_panel: PetCompanionSettingsPanel
 var _screen_awareness_service: PetScreenAwarenessService
+var _activity_logger
 var _pending_screen_message: Dictionary = {}
 var _badminton_game: PetBadmintonGame
 var _dog_companion: PetDogCompanion
@@ -174,6 +179,7 @@ var _pet_position_beside_badminton := Vector2i.ZERO
 var _badminton_position_saved := false
 var _comfort_cooldown := 0.0
 var _dog_interaction_cooldown := 0.0
+var _auto_idle_activity_cooldown := 18.0
 var _dog_interaction_pending := false
 var _dog_interaction_pending_time := 0.0
 var _dog_auto_interaction_time := 0.0
@@ -262,6 +268,7 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_comfort_cooldown = maxf(_comfort_cooldown - delta, 0.0)
 	_dog_interaction_cooldown = maxf(_dog_interaction_cooldown - delta, 0.0)
+	_auto_idle_activity_cooldown = maxf(_auto_idle_activity_cooldown - delta, 0.0)
 	_scripted_dialogue_time_left = maxf(_scripted_dialogue_time_left - delta, 0.0)
 	if state != State.SLEEP:
 		if state != State.ACTIVITY:
@@ -310,6 +317,8 @@ func _process(delta: float) -> void:
 		return
 	if state == State.IDLE:
 		if _state_time >= _state_duration:
+			if _try_start_auto_idle_activity():
+				return
 			_enter_state(State.SLEEP if _rng.randf() < SLEEP_CHANCE else State.WALK)
 	elif state == State.WALK:
 		_move_window(delta)
@@ -325,7 +334,7 @@ func _create_bubble() -> void:
 
 	_bubble = SpeechBubble.new()
 	_bubble.name = "SpeechBubble"
-	_bubble.position = Vector2(50, 1)
+	_bubble.position = Vector2(2, 1)
 	_bubble.z_index = 100
 	_cjk_font = _load_system_font(PET_FONT_PATH)
 	_emoji_font = _load_system_font("C:/Windows/Fonts/seguiemj.ttf")
@@ -342,6 +351,10 @@ func _load_system_font(path: String) -> Font:
 
 
 func _create_care_features() -> void:
+	_activity_logger = ActivityLogger.new()
+	_activity_logger.name = "ActivityLogger"
+	add_child(_activity_logger)
+
 	_care_system = CareSystem.new()
 	_care_system.name = "CareSystem"
 	_care_system.action_performed.connect(_on_care_action_performed)
@@ -371,6 +384,7 @@ func _create_care_features() -> void:
 	_proactive_companion.message_ready.connect(_on_proactive_message)
 	_proactive_companion.enabled_changed.connect(_on_proactive_enabled_changed)
 	_proactive_companion.settings_changed.connect(_sync_companion_settings)
+	_proactive_companion.activity_logged.connect(_on_activity_logged)
 	add_child(_proactive_companion)
 
 	_foreground_app_monitor = ForegroundAppMonitor.new()
@@ -399,6 +413,7 @@ func _create_care_features() -> void:
 	_screen_awareness_service.analysis_ready.connect(_on_screen_analysis_ready)
 	_screen_awareness_service.analysis_failed.connect(_on_screen_analysis_failed)
 	_screen_awareness_service.settings_changed.connect(_sync_screen_monitoring)
+	_screen_awareness_service.activity_logged.connect(_on_activity_logged)
 	add_child(_screen_awareness_service)
 	_sync_screen_monitoring()
 
@@ -441,6 +456,11 @@ func _create_care_features() -> void:
 
 
 func _on_care_action_performed(result: Dictionary) -> void:
+	_log_activity("care.action", String(result.get("message", "养成动作")), {
+		"action": String(result.get("action", "")),
+		"activity": String(result.get("activity", "")),
+		"success": bool(result.get("success", false))
+	})
 	if bool(result.get("success", false)) and _proactive_companion:
 		var interaction := _describe_care_interaction(result)
 		if not interaction.is_empty():
@@ -472,6 +492,7 @@ func _on_care_action_performed(result: Dictionary) -> void:
 
 
 func _on_ai_assistant_replied(text: String) -> void:
+	_log_activity("chat.assistant", text.left(120))
 	if _care_system:
 		_care_system.apply_ai_chat_reward()
 	if _proactive_companion:
@@ -486,6 +507,7 @@ func _on_ai_assistant_replied(text: String) -> void:
 func _on_proactive_message(text: String, emoji: String) -> void:
 	if _scripted_dialogue_time_left > 0.0:
 		return
+	_log_activity("bubble.proactive", text, {"emoji": emoji})
 	_show_bubble(text, 8.0, emoji)
 
 
@@ -496,6 +518,11 @@ func _on_music_track_changed(info: Dictionary) -> void:
 		return
 	_last_music_track_id = track_id
 	_music_reflection_time_left = _rng.randf_range(35.0, 55.0)
+	_log_activity("music.track", "检测到音乐切歌", {
+		"title": title,
+		"artist": String(info.get("artist", "")),
+		"source": String(info.get("source_label", ""))
+	})
 	if String(info.get("playback_status", "")) != "playing" or state == State.SLEEP:
 		return
 	_last_music_spoken_track_id = track_id
@@ -518,6 +545,11 @@ func _on_music_track_changed(info: Dictionary) -> void:
 func _on_music_playback_changed(playing: bool, info: Dictionary) -> void:
 	var track_id := String(info.get("track_id", ""))
 	var title := String(info.get("title", "")).strip_edges()
+	_log_activity("music.playback", "音乐播放状态变化", {
+		"playing": playing,
+		"title": title,
+		"source": String(info.get("source_label", ""))
+	})
 	if not playing:
 		if Time.get_ticks_msec() - _music_pause_spoken_at > 90000 and state != State.SLEEP:
 			_music_pause_spoken_at = Time.get_ticks_msec()
@@ -738,7 +770,7 @@ func _restore_dog_after_interaction() -> void:
 	_schedule_next_dog_interaction(false)
 
 
-func _on_dog_adoption_requested(requested_name: String = "测试小狗") -> void:
+func _on_dog_adoption_requested(requested_name: String = "小狗") -> void:
 	if not _dog_companion or _dog_companion.is_adopted():
 		return
 	var screen := DisplayServer.window_get_current_screen()
@@ -754,6 +786,7 @@ func _on_dog_adoption_requested(requested_name: String = "测试小狗") -> void
 	_enter_state(State.IDLE)
 	_state_duration = 6.0
 	_show_bubble("以后这里就是你的家啦。欢迎你，%s！ (^_^)" % dog_name, 5.0, "🐾")
+	_log_activity("dog.adopt", "领养小狗", {"name": dog_name})
 	if _proactive_companion:
 		_proactive_companion.note_interaction("用户刚刚和你一起领养了白色小狗%s" % dog_name)
 
@@ -1150,11 +1183,11 @@ func _open_music_player() -> void:
 	_music_player_panel.open_at(Vector2i(panel_x, panel_y))
 
 
-func _on_music_windowed_restore_requested(window_position: Vector2i) -> void:
-	call_deferred("_recreate_music_player_after_fullscreen", window_position)
+func _on_music_windowed_restore_requested(window_position: Vector2i, cover_texture: Texture2D) -> void:
+	call_deferred("_recreate_music_player_after_fullscreen", window_position, cover_texture)
 
 
-func _recreate_music_player_after_fullscreen(window_position: Vector2i) -> void:
+func _recreate_music_player_after_fullscreen(window_position: Vector2i, cover_texture: Texture2D) -> void:
 	if is_instance_valid(_music_player_panel):
 		_music_player_panel.queue_free()
 	_music_player_panel = MusicPlayerPanel.new()
@@ -1163,6 +1196,7 @@ func _recreate_music_player_after_fullscreen(window_position: Vector2i) -> void:
 	_music_player_panel.windowed_restore_requested.connect(_on_music_windowed_restore_requested)
 	add_child(_music_player_panel)
 	_music_player_panel.open_at(window_position)
+	_music_player_panel.restore_cover_texture(cover_texture)
 
 
 func _debug_open_music_fullscreen() -> void:
@@ -1177,6 +1211,11 @@ func _open_screen_awareness() -> void:
 
 
 func _on_screen_analysis_ready(result: Dictionary) -> void:
+	_log_activity("screen.result", String(result.get("activity", "画面理解完成")), {
+		"scene_type": String(result.get("scene_type", "other")),
+		"event": String(result.get("event", "none")),
+		"should_speak": bool(result.get("should_speak", result.get("speak", false)))
+	})
 	var speech := String(result.get("text", "")).strip_edges()
 	var suggestion := String(result.get("suggestion", "")).strip_edges()
 	if speech.is_empty():
@@ -1188,6 +1227,7 @@ func _on_screen_analysis_ready(result: Dictionary) -> void:
 
 
 func _on_screen_analysis_failed(message: String) -> void:
+	_log_activity("screen.failed", message)
 	if state != State.SLEEP and _screen_awareness_service and _screen_awareness_service.get_last_observation_reason() == "manual":
 		_on_proactive_message(message, "👀")
 
@@ -1911,6 +1951,58 @@ func _finish_activity() -> void:
 		_show_bubble(dog_text, 4.2, dog_line["emoji"])
 		if _proactive_companion:
 			_proactive_companion.note_interaction("你刚刚主动抱了抱%s，和它玩了一会儿" % _dog_display_name())
+
+
+func _try_start_auto_idle_activity() -> bool:
+	if _auto_idle_activity_cooldown > 0.0 or _rng.randf() > AUTO_IDLE_ACTIVITY_CHANCE:
+		return false
+	if not sprite.sprite_frames:
+		return false
+	var candidates: Array[Dictionary] = []
+	if sprite.sprite_frames.has_animation(HANDHELD_ANIMATION):
+		candidates.append({
+			"activity": HANDHELD_ANIMATION,
+			"weight": 0.58,
+			"text": "我偷偷打一局掌机，马上回来陪你 (^_^)",
+			"emoji": "🎮"
+		})
+	if sprite.sprite_frames.has_animation(BADMINTON_ANIMATION):
+		candidates.append({
+			"activity": BADMINTON_ANIMATION,
+			"weight": 0.42,
+			"text": "趁现在练几拍，等你来挑战我 (>_<)",
+			"emoji": "🏸"
+		})
+	if candidates.is_empty():
+		return false
+
+	var total_weight := 0.0
+	for candidate in candidates:
+		total_weight += float(candidate["weight"])
+	var roll := _rng.randf() * total_weight
+	var chosen := candidates[0]
+	for candidate in candidates:
+		roll -= float(candidate["weight"])
+		if roll <= 0.0:
+			chosen = candidate
+			break
+
+	_auto_idle_activity_cooldown = _rng.randf_range(AUTO_IDLE_ACTIVITY_COOLDOWN_MIN, AUTO_IDLE_ACTIVITY_COOLDOWN_MAX)
+	_music_activity_live = false
+	_show_bubble(String(chosen["text"]), 3.4, String(chosen["emoji"]))
+	_active_activity = String(chosen["activity"])
+	_log_activity("pet.idle_activity", "桌宠自动开始待机娱乐动作", {"activity": _active_activity})
+	_enter_state(State.ACTIVITY)
+	return true
+
+
+func _on_activity_logged(event_type: String, message: String, metadata: Dictionary) -> void:
+	_log_activity(event_type, message, metadata)
+
+
+func _log_activity(event_type: String, message: String, metadata: Dictionary = {}) -> void:
+	if _activity_logger:
+		_activity_logger.record(event_type, message, metadata)
 
 
 func _choose_walk_direction() -> void:
