@@ -741,15 +741,12 @@ func _session_is_playing() -> bool:
 
 
 func play_enter_transition() -> void:
-	modulate.a = 0.0
-	var tween := create_tween()
-	tween.tween_property(self, "modulate:a", 1.0, 0.24).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	modulate = Color.WHITE
 
 
 func play_exit_transition() -> void:
-	var tween := create_tween()
-	tween.tween_property(self, "modulate:a", 0.0, 0.16).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	await tween.finished
+	modulate = Color.WHITE
+	await get_tree().process_frame
 
 func _make_label(text_value: String, font_size: int, color: Color, alignment: HorizontalAlignment) -> Label:
 	var label := Label.new()

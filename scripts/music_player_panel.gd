@@ -868,6 +868,7 @@ func _enter_fullscreen() -> void:
 	# tests but could lose real mouse input on transparent multi-window desktops.
 	_root.visible = false
 	_text_layer.visible = false
+	_immersive_view.modulate = Color.WHITE
 	min_size = Vector2i.ONE
 	mode = Window.MODE_WINDOWED
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED, get_window_id())
@@ -880,10 +881,20 @@ func _enter_fullscreen() -> void:
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false, get_window_id())
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, get_window_id())
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, get_window_id())
+	DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), get_window_id())
+	hide()
+	await get_tree().process_frame
+	if not _fullscreen_transitioning:
+		return
+	transparent_bg = false
+	get_viewport().transparent_bg = false
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false, get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, get_window_id())
+	DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), get_window_id())
 	position = screen_position
 	size = immersive_window_size
 	show()
-	_set_full_mouse_input_region()
 	_immersive_view.visible = true
 	_immersive_view.set_native_window_id(get_window_id())
 	_resize_immersive_view()
@@ -894,6 +905,11 @@ func _enter_fullscreen() -> void:
 	await get_tree().process_frame
 	if not _fullscreen_transitioning:
 		return
+	transparent_bg = false
+	get_viewport().transparent_bg = false
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false, get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, get_window_id())
 	DisplayServer.window_set_current_screen(_fullscreen_screen, get_window_id())
 	DisplayServer.window_set_position(screen_position, get_window_id())
 	DisplayServer.window_set_size(immersive_window_size, get_window_id())
