@@ -45,8 +45,16 @@ var _next_button: TextureButton
 var _shuffle_button: TextureButton
 var _mode_button: TextureButton
 var _mode_badge: Label
+var _previous_face: Panel
+var _previous_icon: Label
 var _play_face: Panel
 var _play_icon: Label
+var _next_face: Panel
+var _next_icon: Label
+var _shuffle_face: Panel
+var _shuffle_icon: Label
+var _mode_face: Panel
+var _mode_icon: Label
 var _previous_feedback: Panel
 var _next_feedback: Panel
 var _mode_feedback: Panel
@@ -62,6 +70,7 @@ var _note_tween: Tween
 var _lyric_tween: Tween
 var _cover_tween: Tween
 var _button_tweens: Dictionary = {}
+var _button_visuals: Dictionary = {}
 var _last_lyric_index := -1
 var _lyric_reaction_counter := 0
 var _last_track_id := ""
@@ -263,6 +272,8 @@ func set_session(info: Dictionary, mode_name: String) -> void:
 	_mode_button.disabled = not found
 	_current_mode_name = mode_name
 	_mode_badge.text = _mode_badge_text(mode_name)
+	if is_instance_valid(_mode_icon):
+		_mode_icon.text = _mode_badge_text(mode_name)
 	_shuffle_button.tooltip_text = "随机播放" if mode_name != "shuffle" else "正在随机播放"
 	_mode_button.tooltip_text = "播放顺序：" + _mode_display_name(mode_name)
 	_position_mode_feedback()
@@ -431,25 +442,40 @@ func _build_ui() -> void:
 	add_child(_duration_label)
 
 	_previous_button = _make_dock_hit_button("上一首")
-	_previous_button.texture_normal = _make_atlas_texture(PREVIOUS_REGION)
 	_previous_button.pressed.connect(_emit_action.bind("previous"))
-	_bind_button_motion(_previous_button, 1.06)
+	_previous_face = _make_round_control_face(false)
+	_previous_icon = _make_control_icon("‹", 58)
+	_previous_face.add_child(_previous_icon)
+	add_child(_previous_face)
+	_bind_button_motion(_previous_button, 1.06, _previous_face)
 	_play_pause_button = _make_dock_hit_button("播放")
-	_play_pause_button.texture_normal = _make_atlas_texture(PLAY_REGION)
 	_play_pause_button.pressed.connect(_emit_action.bind("play_pause"))
-	_bind_button_motion(_play_pause_button, 1.05)
+	_play_face = _make_round_control_face(true)
+	_play_icon = _make_control_icon("▶", 58)
+	_play_face.add_child(_play_icon)
+	add_child(_play_face)
+	_bind_button_motion(_play_pause_button, 1.05, _play_face)
 	_next_button = _make_dock_hit_button("下一首")
-	_next_button.texture_normal = _make_atlas_texture(NEXT_REGION)
 	_next_button.pressed.connect(_emit_action.bind("next"))
-	_bind_button_motion(_next_button, 1.06)
+	_next_face = _make_round_control_face(false)
+	_next_icon = _make_control_icon("›", 58)
+	_next_face.add_child(_next_icon)
+	add_child(_next_face)
+	_bind_button_motion(_next_button, 1.06, _next_face)
 	_shuffle_button = _make_dock_hit_button("随机播放")
-	_shuffle_button.texture_normal = _make_atlas_texture(SHUFFLE_REGION)
 	_shuffle_button.pressed.connect(_emit_action.bind("mode_shuffle"))
-	_bind_button_motion(_shuffle_button, 1.08)
+	_shuffle_face = _make_round_control_face(false)
+	_shuffle_icon = _make_control_icon("S", 32)
+	_shuffle_face.add_child(_shuffle_icon)
+	add_child(_shuffle_face)
+	_bind_button_motion(_shuffle_button, 1.08, _shuffle_face)
 	_mode_button = _make_dock_hit_button("循环播放")
-	_mode_button.texture_normal = _make_atlas_texture(REPEAT_REGION)
 	_mode_button.pressed.connect(_emit_action.bind("mode"))
-	_bind_button_motion(_mode_button, 1.08)
+	_mode_face = _make_round_control_face(false)
+	_mode_icon = _make_control_icon("A", 31)
+	_mode_face.add_child(_mode_icon)
+	add_child(_mode_face)
+	_bind_button_motion(_mode_button, 1.08, _mode_face)
 	add_child(_previous_button)
 	add_child(_play_pause_button)
 	add_child(_next_button)
@@ -458,13 +484,6 @@ func _build_ui() -> void:
 	_mode_badge = _make_label("", 14, Color("6f9478"), HORIZONTAL_ALIGNMENT_CENTER)
 	_mode_badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_mode_button.add_child(_mode_badge)
-	_play_face = _make_round_control_face()
-	_play_face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_play_face.z_index = 101
-	add_child(_play_face)
-	_play_icon = _make_label("▶", 36, Color("c86f82"), HORIZONTAL_ALIGNMENT_CENTER)
-	_play_icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_play_face.add_child(_play_icon)
 	_previous_feedback = _make_feedback_ring()
 	_next_feedback = _make_feedback_ring()
 	_mode_feedback = _make_feedback_ring()
@@ -570,16 +589,22 @@ func _layout() -> void:
 	_set_control_rect(_elapsed_label, Rect2(940, 1750, 110, 28))
 	_set_control_rect(_duration_label, Rect2(1510, 1750, 110, 28))
 
-	_set_control_rect(_previous_button, Rect2(1770, 1620, 150, 150))
-	_set_control_rect(_play_pause_button, Rect2(1958, 1584, 216, 190))
-	_set_control_rect(_next_button, Rect2(2210, 1620, 150, 150))
-	_set_control_rect(_shuffle_button, Rect2(2480, 1626, 128, 128))
-	_set_control_rect(_mode_button, Rect2(2652, 1626, 128, 128))
+	var previous_rect := Rect2(1770, 1620, 150, 150)
+	var play_rect := Rect2(1958, 1584, 216, 190)
+	var next_rect := Rect2(2210, 1620, 150, 150)
+	var shuffle_rect := Rect2(2480, 1626, 128, 128)
+	var mode_rect := Rect2(2652, 1626, 128, 128)
+	_set_button_face_rect(_previous_face, _previous_icon, previous_rect)
+	_set_button_face_rect(_play_face, _play_icon, play_rect)
+	_set_button_face_rect(_next_face, _next_icon, next_rect)
+	_set_button_face_rect(_shuffle_face, _shuffle_icon, shuffle_rect)
+	_set_button_face_rect(_mode_face, _mode_icon, mode_rect)
+	_set_control_rect(_previous_button, previous_rect)
+	_set_control_rect(_play_pause_button, play_rect)
+	_set_control_rect(_next_button, next_rect)
+	_set_control_rect(_shuffle_button, shuffle_rect)
+	_set_control_rect(_mode_button, mode_rect)
 	_mode_badge.visible = false
-	_set_control_rect(_play_face, Rect2(1988, 1616, 150, 150))
-	_play_icon.position = Vector2.ZERO
-	_play_icon.size = _play_face.size
-	_play_icon.pivot_offset = _play_icon.size * 0.5
 	_set_control_rect(_previous_feedback, Rect2(1812, 1660, 70, 70))
 	_set_control_rect(_next_feedback, Rect2(2252, 1660, 70, 70))
 	_position_mode_feedback()
@@ -605,17 +630,20 @@ func _set_play_visual(playing: bool, animate: bool) -> void:
 	_last_playing = playing
 	if not is_instance_valid(_play_pause_button):
 		return
-	_play_pause_button.texture_normal = _make_atlas_texture(PAUSE_REGION if playing else PLAY_REGION)
-	_kill_button_tween(_play_pause_button)
+	_play_pause_button.texture_normal = null
+	var target := _button_motion_target(_play_pause_button)
+	_kill_button_tween(target)
 	if is_instance_valid(_play_icon):
-		_play_icon.text = ""
+		_play_icon.text = "II" if playing else "▶"
 	if not animate:
-		_play_pause_button.scale = Vector2.ONE
+		if is_instance_valid(target):
+			target.scale = Vector2.ONE
 		return
 	var tween := create_tween()
-	tween.tween_property(_play_pause_button, "scale", Vector2.ONE * 0.90, 0.07).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(_play_pause_button, "scale", Vector2.ONE * 1.10, 0.15).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(_play_pause_button, "scale", Vector2.ONE, 0.14).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	_button_tweens[target.get_instance_id()] = tween
+	tween.tween_property(target, "scale", Vector2.ONE * 0.90, 0.07).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(target, "scale", Vector2.ONE * 1.10, 0.15).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(target, "scale", Vector2.ONE, 0.14).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 
 
 func _position_mode_feedback() -> void:
@@ -625,6 +653,10 @@ func _position_mode_feedback() -> void:
 	_set_control_rect(_mode_feedback, highlight_rect)
 	_mode_feedback.visible = true
 	_mode_feedback.modulate = Color(1.0, 1.0, 1.0, 0.92)
+	if is_instance_valid(_shuffle_face):
+		_shuffle_face.modulate = Color(1.0, 0.96, 0.98, 1.0) if _current_mode_name == "shuffle" else Color.WHITE
+	if is_instance_valid(_mode_face):
+		_mode_face.modulate = Color.WHITE if _current_mode_name == "shuffle" else Color(1.0, 0.96, 0.98, 1.0)
 
 
 func _next_repeat_mode(mode_name: String) -> String:
@@ -637,22 +669,28 @@ func _next_repeat_mode(mode_name: String) -> String:
 			return "list"
 
 
-func _bind_button_motion(button: Control, hover_scale: float) -> void:
+func _bind_button_motion(button: Control, hover_scale: float, visual: Control = null) -> void:
+	var target := visual if is_instance_valid(visual) else button
+	_button_visuals[button.get_instance_id()] = target
 	button.pivot_offset = button.size * 0.5
 	button.resized.connect(func() -> void: button.pivot_offset = button.size * 0.5)
-	button.mouse_entered.connect(_animate_button_scale.bind(button, Vector2.ONE * hover_scale, 0.12, true))
-	button.mouse_exited.connect(_animate_button_scale.bind(button, Vector2.ONE, 0.14, false))
+	target.resized.connect(func() -> void: target.pivot_offset = target.size * 0.5)
+	button.mouse_entered.connect(_animate_button_scale.bind(target, Vector2.ONE * hover_scale, 0.12, true))
+	button.mouse_exited.connect(_animate_button_scale.bind(target, Vector2.ONE, 0.14, false))
 
 
 func _tap_button(button: Control) -> void:
 	if not is_instance_valid(button):
 		return
-	_kill_button_tween(button)
+	var target := _button_motion_target(button)
+	if not is_instance_valid(target):
+		return
+	_kill_button_tween(target)
 	var tween := create_tween()
-	_button_tweens[button.get_instance_id()] = tween
-	tween.tween_property(button, "scale", Vector2.ONE * 0.92, 0.06).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.tween_property(button, "scale", Vector2.ONE * 1.08, 0.11).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-	tween.tween_property(button, "scale", Vector2.ONE, 0.10).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	_button_tweens[target.get_instance_id()] = tween
+	tween.tween_property(target, "scale", Vector2.ONE * 0.92, 0.06).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tween.tween_property(target, "scale", Vector2.ONE * 1.08, 0.11).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tween.tween_property(target, "scale", Vector2.ONE, 0.10).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
 func _animate_button_scale(button: Control, target_scale: Vector2, duration: float, hovered: bool) -> void:
@@ -665,10 +703,21 @@ func _animate_button_scale(button: Control, target_scale: Vector2, duration: flo
 
 
 func _kill_button_tween(button: Control) -> void:
+	if not is_instance_valid(button):
+		return
 	var key := button.get_instance_id()
 	var previous: Tween = _button_tweens.get(key)
 	if previous and previous.is_valid():
 		previous.kill()
+
+
+func _button_motion_target(button: Control) -> Control:
+	if not is_instance_valid(button):
+		return null
+	var target = _button_visuals.get(button.get_instance_id())
+	if target is Control and is_instance_valid(target):
+		return target
+	return button
 
 
 func _pulse_control(control: Control) -> void:
@@ -761,10 +810,27 @@ func _make_label(text_value: String, font_size: int, color: Color, alignment: Ho
 	return label
 
 
-func _make_round_control_face() -> Panel:
+func _make_round_control_face(primary: bool) -> Panel:
 	var face := Panel.new()
-	face.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(1.0, 0.94, 0.93, 0.88) if primary else Color(1.0, 0.965, 0.95, 0.80)
+	style.border_color = Color(0.83, 0.45, 0.55, 0.82) if primary else Color(0.80, 0.54, 0.60, 0.70)
+	style.set_border_width_all(3 if primary else 2)
+	style.set_corner_radius_all(999)
+	style.shadow_color = Color(0.60, 0.28, 0.34, 0.12)
+	style.shadow_size = 10 if primary else 7
+	style.shadow_offset = Vector2(0, 4)
+	face.add_theme_stylebox_override("panel", style)
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	face.z_index = 101
 	return face
+
+
+func _make_control_icon(text_value: String, font_size: int) -> Label:
+	var label := _make_label(text_value, font_size, Color("c86f82"), HORIZONTAL_ALIGNMENT_CENTER)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.z_index = 102
+	return label
 
 
 func _make_feedback_ring() -> Panel:
@@ -876,6 +942,13 @@ func _set_control_rect(control: Control, base_rect: Rect2) -> void:
 	control.position = scaled.position
 	control.size = scaled.size
 	control.pivot_offset = scaled.size * 0.5
+
+
+func _set_button_face_rect(face: Control, icon: Control, base_rect: Rect2) -> void:
+	_set_control_rect(face, base_rect)
+	icon.position = Vector2.ZERO
+	icon.size = face.size
+	icon.pivot_offset = icon.size * 0.5
 
 
 func uses_player_skin() -> bool:
