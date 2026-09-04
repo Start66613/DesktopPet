@@ -54,6 +54,7 @@ var _stage_pet: AnimatedSprite2D
 var _note_tween: Tween
 var _lyric_tween: Tween
 var _cover_tween: Tween
+var _control_key_material: ShaderMaterial
 var _button_tweens: Dictionary = {}
 var _last_lyric_index := -1
 var _lyric_reaction_counter := 0
@@ -149,6 +150,10 @@ func handle_pointer_event(event: InputEvent, pointer_position: Vector2) -> bool:
 		_emit_native_seek(pointer_position)
 		return true
 	return false
+
+
+func request_play_pause() -> void:
+	_emit_action("play_pause")
 
 
 func _dispatch_pointer_press(pointer_position: Vector2) -> bool:
@@ -569,8 +574,8 @@ func _layout() -> void:
 	_set_control_rect(_previous_feedback, Rect2(1812, 1660, 70, 70))
 	_set_control_rect(_next_feedback, Rect2(2252, 1660, 70, 70))
 	_position_mode_feedback()
-	_set_control_rect(_minimize_button, Rect2(3030, 90, 84, 84))
-	_set_control_rect(_exit_button, Rect2(3165, 90, 84, 84))
+	_set_control_rect(_minimize_button, Rect2(3000, 58, 132, 132))
+	_set_control_rect(_exit_button, Rect2(3137, 58, 132, 132))
 
 	if is_instance_valid(_stage_pet):
 		_stage_pet.scale = Vector2.ONE * minf(size.x / BASE_SIZE.x, size.y / BASE_SIZE.y) * 0.78
@@ -771,12 +776,34 @@ func _make_dock_hit_button(tooltip: String) -> TextureButton:
 	button.ignore_texture_size = true
 	button.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
 	button.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	button.material = _get_control_key_material()
 	button.mouse_filter = Control.MOUSE_FILTER_STOP
 	button.z_index = 100
 	button.tooltip_text = tooltip
 	button.focus_mode = Control.FOCUS_NONE
 	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	return button
+
+
+func _get_control_key_material() -> ShaderMaterial:
+	if _control_key_material:
+		return _control_key_material
+	var shader := Shader.new()
+	shader.code = """
+shader_type canvas_item;
+
+void fragment() {
+	vec4 color = texture(TEXTURE, UV);
+	float max_channel = max(max(color.r, color.g), color.b);
+	float min_channel = min(min(color.r, color.g), color.b);
+	float soft_paper = smoothstep(0.86, 0.97, max_channel) * (1.0 - smoothstep(0.08, 0.24, max_channel - min_channel));
+	color.a *= 1.0 - soft_paper;
+	COLOR = color;
+}
+"""
+	_control_key_material = ShaderMaterial.new()
+	_control_key_material.shader = shader
+	return _control_key_material
 
 
 func _load_control_texture(file_name: String) -> Texture2D:

@@ -8,14 +8,14 @@ const TAIL_SIZE := Vector2(28, 18)
 const TAIL_CENTER_X := 158.0
 const TAIL_TOP := 107.0
 const BUBBLE_BOUNDS := Rect2(0, 0, 316, 125)
-const FONT_SIZE := 14
+const FONT_SIZE := 13
 const LONG_TEXT_FONT_SIZE := 12
-const TINY_TEXT_FONT_SIZE := 11
+const TINY_TEXT_FONT_SIZE := 10
 const EMOJI_SIZE := 15
 const TEXT_COLOR := Color("573f49")
-const TEXT_LEFT := 28.0
-const TEXT_RIGHT := 28.0
-const TEXT_RIGHT_WITH_EMOJI := 58.0
+const TEXT_LEFT := 30.0
+const TEXT_RIGHT := 36.0
+const TEXT_RIGHT_WITH_EMOJI := 74.0
 const TEXT_TOP := 15.0
 const MAX_TEXT_LINES := 4
 const CJK_UNIT_WIDTH_FACTOR := 1.08
@@ -104,9 +104,9 @@ func _layout_text() -> void:
 		return
 
 	var font := _get_text_font()
-	for candidate_size in [FONT_SIZE, 13, LONG_TEXT_FONT_SIZE, TINY_TEXT_FONT_SIZE]:
+	for candidate_size in [FONT_SIZE, LONG_TEXT_FONT_SIZE, 11, TINY_TEXT_FONT_SIZE]:
 		var lines := _wrap_text(_text, font, candidate_size, _prepared_text_width)
-		if lines.size() <= MAX_TEXT_LINES:
+		if lines.size() <= MAX_TEXT_LINES and _lines_fit(lines, font, candidate_size, _prepared_text_width):
 			_prepared_font_size = candidate_size
 			_prepared_lines = lines
 			return
@@ -143,6 +143,13 @@ func _wrap_text(text: String, font: Font, font_size: int, max_width: float) -> P
 	if not current.is_empty():
 		lines.append(current.strip_edges())
 	return lines
+
+
+func _lines_fit(lines: PackedStringArray, font: Font, font_size: int, max_width: float) -> bool:
+	for line in lines:
+		if font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x > max_width * 0.96:
+			return false
+	return true
 
 
 func _visual_units(character: String) -> float:

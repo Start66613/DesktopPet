@@ -2187,10 +2187,17 @@ func _position_window_at_drag_anchor() -> void:
 func _input(event: InputEvent) -> void:
 	# ESC 退出（调试用）
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		if _music_player_panel and _music_player_panel.is_fullscreen_active():
+			_music_player_panel.exit_fullscreen()
+			return
 		if _badminton_game and _badminton_game.visible:
 			return
 		get_tree().quit()
 		return
+	if event is InputEventKey and event.pressed and event.keycode == KEY_F11:
+		if _music_player_panel and _music_player_panel.is_fullscreen_active():
+			_music_player_panel.exit_fullscreen()
+			return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and _suppress_next_left_release:
 		_suppress_next_left_release = false
 		return

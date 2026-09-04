@@ -51,6 +51,7 @@ var _next_button: TextureButton
 var _mode_button: TextureButton
 var _mode_badge: Label
 var _fullscreen_button: Button
+var _immersive_window: Window
 var _immersive_view: PetImmersiveMusicView
 var _music_info_service
 var _song_info: Dictionary = {}
@@ -337,15 +338,34 @@ func _build_ui() -> void:
 	_duration_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_text_layer.add_child(_elapsed_label)
 	_text_layer.add_child(_duration_label)
-	_create_immersive_view()
-
-func _create_immersive_view() -> void:
-	if is_instance_valid(_immersive_view):
+func _create_immersive_window(screen_rect: Rect2i) -> void:
+	if is_instance_valid(_immersive_window) and is_instance_valid(_immersive_view):
 		return
+	_destroy_immersive_window()
+	_immersive_window = Window.new()
+	_immersive_window.process_mode = Node.PROCESS_MODE_ALWAYS
+	_immersive_window.name = "ImmersiveMusicWindow"
+	_immersive_window.title = "音乐中心 - 沉浸模式"
+	_immersive_window.visible = false
+	_immersive_window.mode = Window.MODE_WINDOWED
+	_immersive_window.borderless = true
+	_immersive_window.transparent_bg = false
+	_immersive_window.unresizable = true
+	_immersive_window.always_on_top = false
+	_immersive_window.transient = false
+	_immersive_window.force_native = true
+	_immersive_window.current_screen = _fullscreen_screen
+	_immersive_window.position = screen_rect.position
+	_immersive_window.size = screen_rect.size
+	_immersive_window.min_size = Vector2i(640, 360)
+	_immersive_window.close_requested.connect(_exit_fullscreen)
+	_immersive_window.size_changed.connect(_resize_immersive_view)
+	_immersive_window.window_input.connect(_on_immersive_window_input)
+
 	_immersive_view = ImmersiveMusicView.new()
 	_immersive_view.configure(_font)
 	_immersive_view.name = "ImmersiveMusicView"
-	_immersive_view.visible = false
+	_immersive_view.visible = true
 	_immersive_view.z_index = 100
 	_immersive_view.mouse_filter = Control.MOUSE_FILTER_STOP
 	_immersive_view.exit_requested.connect(_exit_fullscreen)
@@ -354,8 +374,9 @@ func _create_immersive_view() -> void:
 	_immersive_view.next_requested.connect(_on_next_pressed)
 	_immersive_view.mode_requested.connect(_on_immersive_mode_requested)
 	_immersive_view.seek_requested.connect(_on_seek_requested)
-	add_child(_immersive_view)
-	_immersive_view.set_native_window_id(get_window_id())
+	_immersive_window.add_child(_immersive_view)
+	get_tree().root.add_child(_immersive_window)
+	_immersive_view.set_native_window_id(_immersive_window.get_window_id())
 	_resize_immersive_view()
 
 
@@ -845,13 +866,9 @@ func _enter_fullscreen() -> void:
 	_fullscreen_screen = DisplayServer.window_get_current_screen(get_window_id())
 	if _fullscreen_screen < 0:
 		_fullscreen_screen = 0
-	var screen_position := DisplayServer.screen_get_position(_fullscreen_screen)
-	var screen_size := DisplayServer.screen_get_size(_fullscreen_screen)
-	# Staying one physical pixel below the monitor bounds prevents Windows/Godot
-	# from silently promoting this borderless window to exclusive fullscreen.
-	var immersive_window_size := screen_size - Vector2i.ONE
-	_create_immersive_view()
-	if not is_instance_valid(_immersive_view):
+	var screen_rect := _get_immersive_screen_rect(_fullscreen_screen)
+	_create_immersive_window(screen_rect)
+	if not is_instance_valid(_immersive_window) or not is_instance_valid(_immersive_view):
 		_fullscreen_transitioning = false
 		return
 	var main_window := get_tree().root
@@ -864,66 +881,45 @@ func _enter_fullscreen() -> void:
 		if not _fullscreen_transitioning:
 			return
 
-	# Reuse this proven native window. A second Window looked correct in synthetic
-	# tests but could lose real mouse input on transparent multi-window desktops.
-	_root.visible = false
-	_text_layer.visible = false
+	# Keep the compact transparent player untouched. The immersive surface is a
+	# normal opaque window, so Windows keeps mouse and keyboard input reliable.
 	_immersive_view.modulate = Color.WHITE
-	min_size = Vector2i.ONE
-	mode = Window.MODE_WINDOWED
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED, get_window_id())
-	current_screen = _fullscreen_screen
-	borderless = true
-	unresizable = true
-	always_on_top = false
-	transparent_bg = false
-	get_viewport().transparent_bg = false
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false, get_window_id())
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, get_window_id())
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, get_window_id())
-	DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), get_window_id())
-	hide()
-	await get_tree().process_frame
-	if not _fullscreen_transitioning:
-		return
-	transparent_bg = false
-	get_viewport().transparent_bg = false
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false, get_window_id())
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, get_window_id())
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, get_window_id())
-	DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), get_window_id())
-	position = screen_position
-	size = immersive_window_size
-	show()
+	_immersive_window.mode = Window.MODE_WINDOWED
+	_immersive_window.current_screen = _fullscreen_screen
+	_immersive_window.position = screen_rect.position
+	_immersive_window.size = screen_rect.size
+	_immersive_window.borderless = true
+	_immersive_window.transparent_bg = false
+	_immersive_window.unresizable = true
+	_immersive_window.always_on_top = false
 	_immersive_view.visible = true
-	_immersive_view.set_native_window_id(get_window_id())
+	_immersive_view.set_native_window_id(_immersive_window.get_window_id())
 	_resize_immersive_view()
 	_sync_immersive_session()
 	_sync_immersive_lyrics()
 	if _cover and _cover.texture:
 		_immersive_view.set_cover(_cover.texture)
+	_immersive_window.show()
 	await get_tree().process_frame
 	if not _fullscreen_transitioning:
 		return
-	transparent_bg = false
-	get_viewport().transparent_bg = false
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false, get_window_id())
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, get_window_id())
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, get_window_id())
-	DisplayServer.window_set_current_screen(_fullscreen_screen, get_window_id())
-	DisplayServer.window_set_position(screen_position, get_window_id())
-	DisplayServer.window_set_size(immersive_window_size, get_window_id())
-	_immersive_view.set_native_window_id(get_window_id())
-	_set_full_mouse_input_region()
+	DisplayServer.window_set_current_screen(_fullscreen_screen, _immersive_window.get_window_id())
+	DisplayServer.window_set_position(screen_rect.position, _immersive_window.get_window_id())
+	DisplayServer.window_set_size(screen_rect.size, _immersive_window.get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, false, _immersive_window.get_window_id())
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, false, _immersive_window.get_window_id())
+	_set_full_mouse_input_region(_immersive_window.get_window_id())
 	if not _immersive_window_fills_screen():
 		_exit_fullscreen()
 		return
 	_resize_immersive_view()
 	_fullscreen_active = true
 	_fullscreen_transitioning = false
-	DisplayServer.window_move_to_foreground(get_window_id())
-	grab_focus()
+	DisplayServer.window_move_to_foreground(_immersive_window.get_window_id())
+	_immersive_window.grab_focus()
 	_immersive_view.play_enter_transition()
+	if _player_was_visible_before_fullscreen:
+		hide()
 	main_window.always_on_top = true
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, true, main_window.get_window_id())
 
@@ -931,114 +927,103 @@ func _enter_fullscreen() -> void:
 func _exit_fullscreen() -> void:
 	if _fullscreen_closing:
 		return
-	if not _fullscreen_active and not _fullscreen_transitioning:
+	if not _fullscreen_active and not _fullscreen_transitioning and not is_instance_valid(_immersive_window):
 		return
 	_fullscreen_closing = true
 	_fullscreen_active = false
 	_fullscreen_transitioning = false
-	if is_instance_valid(_immersive_view):
-		_immersive_view.visible = false
-		_immersive_view.set_native_window_id(DisplayServer.INVALID_WINDOW_ID)
+	var immersive_to_close := _immersive_window
+	var immersive_view_to_close := _immersive_view
+	if is_instance_valid(immersive_view_to_close):
+		immersive_view_to_close.set_native_window_id(DisplayServer.INVALID_WINDOW_ID)
+		await immersive_view_to_close.play_exit_transition()
+	_destroy_immersive_window(false)
 	var main_window := get_tree().root
 	main_window.always_on_top = _main_window_was_always_on_top
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, _main_window_was_always_on_top, main_window.get_window_id())
-	var should_restore_windowed := _player_was_visible_before_fullscreen
-	var cover_texture := _cover.texture if is_instance_valid(_cover) else null
+	if is_instance_valid(immersive_to_close):
+		immersive_to_close.hide()
+		immersive_to_close.queue_free()
+	if _player_was_visible_before_fullscreen:
+		_restore_windowed_player()
 	_player_was_visible_before_fullscreen = false
 	_main_window_was_always_on_top = false
-	if should_restore_windowed and not windowed_restore_requested.get_connections().is_empty():
-		hide()
-		windowed_restore_requested.emit(_windowed_position, cover_texture)
-		queue_free()
-		return
-	# Keep the standalone QA harness working. The game itself connects the signal
-	# above and recreates a new native transparent window instead.
-	_fullscreen_transitioning = true
 	_fullscreen_closing = false
-	_root.visible = true
-	_text_layer.visible = true
-	_player_was_visible_before_fullscreen = should_restore_windowed
-	_finish_windowed_restore()
+	_fullscreen_transitioning = false
 
 
-func _finish_windowed_restore() -> void:
-	# Windows can ignore geometry sent in the same frame that an opaque fullscreen-
-	# sized surface becomes transparent. Apply geometry first, then restore alpha.
-	await get_tree().process_frame
-	if _fullscreen_active:
-		return
+func _restore_windowed_player() -> void:
 	mode = Window.MODE_WINDOWED
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED, get_window_id())
-	min_size = Vector2i.ONE
-	position = _windowed_position
-	size = _windowed_size
-	DisplayServer.window_set_position(_windowed_position, get_window_id())
-	DisplayServer.window_set_size(_windowed_size, get_window_id())
-	_set_full_mouse_input_region()
-	await get_tree().process_frame
-	if _fullscreen_active:
-		return
-	position = _windowed_position
-	size = _windowed_size
-	DisplayServer.window_set_position(_windowed_position, get_window_id())
-	DisplayServer.window_set_size(_windowed_size, get_window_id())
+	borderless = _windowed_borderless
+	unresizable = _windowed_unresizable
+	always_on_top = _windowed_always_on_top
 	transparent_bg = _windowed_transparent_bg
 	get_viewport().transparent_bg = _windowed_transparent_bg
-	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, _windowed_transparent_bg, get_window_id())
-	_set_full_mouse_input_region()
 	min_size = _windowed_min_size
-	if _player_was_visible_before_fullscreen:
-		# The transparent flag is the last operation that can clear WS_VISIBLE on
-		# Windows, so perform the native re-show only after alpha is fully restored.
-		if is_instance_valid(_immersive_view):
-			_immersive_view.set_native_window_id(DisplayServer.INVALID_WINDOW_ID)
-		hide()
-		await get_tree().process_frame
-		if _fullscreen_active:
-			return
-		show()
-		await get_tree().process_frame
-		if _fullscreen_active:
-			return
-		position = _windowed_position
-		size = _windowed_size
-		DisplayServer.window_set_position(_windowed_position, get_window_id())
-		DisplayServer.window_set_size(_windowed_size, get_window_id())
-		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, _windowed_always_on_top, get_window_id())
-		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, get_window_id())
-		_set_full_mouse_input_region()
-	if _player_was_visible_before_fullscreen:
-		grab_focus()
-		_play_open_animation()
-		# Let Godot finish its queued transparent-window resize work before the
-		# final native show. Earlier shows can be overwritten one frame later.
-		await get_tree().create_timer(0.12).timeout
-		if _fullscreen_active:
-			return
-		show()
-		await get_tree().process_frame
-		if _fullscreen_active:
-			return
-		position = _windowed_position
-		size = _windowed_size
-		DisplayServer.window_set_position(_windowed_position, get_window_id())
-		DisplayServer.window_set_size(_windowed_size, get_window_id())
-		_set_full_mouse_input_region()
-	_player_was_visible_before_fullscreen = false
-	_main_window_was_always_on_top = false
-	_fullscreen_transitioning = false
-	_fullscreen_closing = false
-
-
-func _set_full_mouse_input_region() -> void:
+	position = _windowed_position
+	size = _windowed_size
+	if is_instance_valid(_root):
+		_root.visible = true
+	if is_instance_valid(_text_layer):
+		_text_layer.visible = true
+	show()
 	var window_id := get_window_id()
+	if window_id != DisplayServer.INVALID_WINDOW_ID:
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED, window_id)
+		DisplayServer.window_set_position(_windowed_position, window_id)
+		DisplayServer.window_set_size(_windowed_size, window_id)
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_TRANSPARENT, _windowed_transparent_bg, window_id)
+		DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, _windowed_always_on_top, window_id)
+		_set_full_mouse_input_region(window_id)
+	grab_focus()
+	_play_open_animation()
+
+
+func _on_immersive_window_input(event: InputEvent) -> void:
+	if not is_instance_valid(_immersive_window) or not is_instance_valid(_immersive_view):
+		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode in [KEY_ESCAPE, KEY_F11]:
+			_immersive_window.set_input_as_handled()
+			_exit_fullscreen()
+			return
+		if event.keycode == KEY_SPACE:
+			_immersive_window.set_input_as_handled()
+			_immersive_view.request_play_pause()
+			return
+	if event is InputEventMouseButton or event is InputEventMouseMotion:
+		var pointer := _event_pointer_position(event)
+		if _immersive_view.handle_pointer_event(event, pointer):
+			_immersive_window.set_input_as_handled()
+
+
+func _set_full_mouse_input_region(window_id: int = DisplayServer.INVALID_WINDOW_ID) -> void:
+	if window_id == DisplayServer.INVALID_WINDOW_ID:
+		window_id = get_window_id()
 	if window_id == DisplayServer.INVALID_WINDOW_ID:
 		return
 	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, false, window_id)
 	DisplayServer.window_set_mouse_passthrough(PackedVector2Array(), window_id)
 
-func _exit_tree() -> void:
+
+func _get_immersive_screen_rect(screen: int) -> Rect2i:
+	var usable := DisplayServer.screen_get_usable_rect(screen)
+	if usable.size.x > 0 and usable.size.y > 0:
+		return usable
+	return Rect2i(DisplayServer.screen_get_position(screen), DisplayServer.screen_get_size(screen))
+
+
+func _destroy_immersive_window(queue_window: bool = true) -> void:
+	if is_instance_valid(_immersive_view):
+		_immersive_view.set_native_window_id(DisplayServer.INVALID_WINDOW_ID)
 	_immersive_view = null
+	if is_instance_valid(_immersive_window) and queue_window:
+		_immersive_window.queue_free()
+	_immersive_window = null
+
+
+func _exit_tree() -> void:
+	_destroy_immersive_window()
 
 
 func _resize_immersive_view() -> void:
@@ -1046,7 +1031,7 @@ func _resize_immersive_view() -> void:
 		return
 	_immersive_view.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	_immersive_view.position = Vector2.ZERO
-	_immersive_view.size = Vector2(size)
+	_immersive_view.size = Vector2(_immersive_window.size) if is_instance_valid(_immersive_window) else Vector2(size)
 	if _immersive_view.is_node_ready() and _immersive_view.is_inside_tree():
 		_immersive_view._layout()
 	else:
@@ -1058,13 +1043,15 @@ func _event_pointer_position(event: InputEvent) -> Vector2:
 		return (event as InputEventMouse).position
 	return _immersive_view.get_native_pointer_position() if is_instance_valid(_immersive_view) else Vector2.ZERO
 func _immersive_window_fills_screen() -> bool:
-	var expected := DisplayServer.screen_get_size(_fullscreen_screen)
-	var actual := DisplayServer.window_get_size(get_window_id())
+	if not is_instance_valid(_immersive_window):
+		return false
+	var expected := _get_immersive_screen_rect(_fullscreen_screen).size
+	var actual := DisplayServer.window_get_size(_immersive_window.get_window_id())
 	return actual.x >= expected.x - 2 and actual.y >= expected.y - 2
 
 
 func get_immersive_window_id() -> int:
-	return get_window_id() if _fullscreen_active or _fullscreen_transitioning else DisplayServer.INVALID_WINDOW_ID
+	return _immersive_window.get_window_id() if is_instance_valid(_immersive_window) else DisplayServer.INVALID_WINDOW_ID
 
 
 func is_fullscreen_button_visible() -> bool:
@@ -1077,6 +1064,10 @@ func is_fullscreen_active() -> bool:
 
 func enter_fullscreen() -> void:
 	_enter_fullscreen()
+
+
+func exit_fullscreen() -> void:
+	_exit_fullscreen()
 
 
 func get_music_context() -> Dictionary:

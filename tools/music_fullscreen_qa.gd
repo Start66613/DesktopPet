@@ -14,13 +14,13 @@ func _init() -> void:
 	assert(panel.visible)
 	assert(panel.size == Vector2i(820, 465))
 	panel.enter_fullscreen()
-	for _frame in 8:
+	for _frame in 10:
 		await process_frame
 	var immersive_window_id := panel.get_immersive_window_id()
 	var screen := DisplayServer.window_get_current_screen(immersive_window_id)
 	if screen < 0:
 		screen = 0
-	var expected := DisplayServer.screen_get_size(screen)
+	var expected := panel._get_immersive_screen_rect(screen).size
 	var actual := DisplayServer.window_get_size(immersive_window_id)
 	if expected.x <= 0 or expected.y <= 0:
 		print("MUSIC_FULLSCREEN_QA_SKIPPED no native display is available")
@@ -29,16 +29,16 @@ func _init() -> void:
 		return
 	assert(panel.is_fullscreen_active())
 	assert(immersive_window_id != DisplayServer.INVALID_WINDOW_ID)
-	assert(panel._immersive_view.get_parent() == panel)
+	assert(is_instance_valid(panel._immersive_window))
+	assert(panel._immersive_view.get_parent() == panel._immersive_window)
 	assert(actual.x >= expected.x - 2 and actual.y >= expected.y - 2)
-	assert(panel.borderless)
-	assert(not panel.always_on_top)
+	assert(panel._immersive_window.borderless)
+	assert(not panel._immersive_window.transparent_bg)
+	assert(not panel._immersive_window.always_on_top)
 	assert(not DisplayServer.window_get_flag(DisplayServer.WINDOW_FLAG_ALWAYS_ON_TOP, immersive_window_id))
 	assert(not DisplayServer.window_get_flag(DisplayServer.WINDOW_FLAG_MOUSE_PASSTHROUGH, immersive_window_id))
-	assert(panel.visible)
-	assert(panel.transparent_bg == panel._windowed_transparent_bg)
-	assert(not panel._root.visible)
-	assert(not panel._text_layer.visible)
+	assert(not panel.visible)
+	assert(panel.size == Vector2i(820, 465))
 	assert(panel.is_fullscreen_button_visible())
 	assert(panel._immersive_view.visible)
 	assert(panel._immersive_view.size.x >= expected.x - 2)
@@ -55,59 +55,55 @@ func _init() -> void:
 	previous_press.button_index = MOUSE_BUTTON_LEFT
 	previous_press.pressed = true
 	previous_press.position = panel._immersive_view._previous_button.get_global_rect().get_center()
-	assert(panel._immersive_view.handle_pointer_event(previous_press, previous_press.position))
+	panel._immersive_window.push_input(previous_press, true)
 	for _input_frame in 2:
 		await process_frame
 	assert(int(native_events["previous"]) == 1)
 	var exit_rect: Rect2 = panel._immersive_view.get_exit_button_rect()
 	assert(exit_rect.size.x >= float(expected.x) * 0.025 and exit_rect.size.y >= float(expected.y) * 0.045)
 	assert(exit_rect.end.x <= expected.x + 1 and exit_rect.end.y <= expected.y + 1)
-	var panel_texture := panel.get_texture()
-	if panel_texture:
-		var screenshot := panel_texture.get_image()
-		if screenshot and not screenshot.is_empty():
-			assert(_image_has_visible_content(screenshot))
-			assert(_image_has_player_palette(screenshot))
-			screenshot.save_png("res://logs/music_fullscreen_fixed_qa.png")
-	print("MUSIC_FULLSCREEN_QA_OK window_id=%d size=%dx%d skin=player_panel controls_visible=true" % [immersive_window_id, actual.x, actual.y])
+	var screenshot := panel._immersive_window.get_texture().get_image()
+	assert(screenshot and not screenshot.is_empty())
+	assert(_image_has_visible_content(screenshot))
+	assert(_image_has_player_palette(screenshot))
+	screenshot.save_png("res://logs/music_fullscreen_fixed_qa.png")
+	print("MUSIC_FULLSCREEN_QA_OK immersive_window_id=%d size=%dx%d skin=player_panel input_window=true" % [immersive_window_id, actual.x, actual.y])
 	var pointer_press := InputEventMouseButton.new()
 	pointer_press.button_index = MOUSE_BUTTON_LEFT
 	pointer_press.pressed = true
 	pointer_press.position = exit_rect.get_center()
-	assert(panel._immersive_view.handle_pointer_event(pointer_press, pointer_press.position))
+	panel._immersive_window.push_input(pointer_press, true)
 	await create_timer(0.35).timeout
 	assert(not panel.is_fullscreen_active())
+	assert(not is_instance_valid(panel._immersive_window))
 	assert(panel.get_window_id() != DisplayServer.INVALID_WINDOW_ID)
 	assert(panel.visible)
 	assert(panel.transparent_bg)
 	assert(panel._root.visible)
 	assert(panel._text_layer.visible)
-	print("MUSIC_FULLSCREEN_RESTORE_STATE size=%s position=%s saved_size=%s saved_position=%s mode=%s native_mode=%s transitioning=%s" % [DisplayServer.window_get_size(panel.get_window_id()), DisplayServer.window_get_position(panel.get_window_id()), panel._windowed_size, panel._windowed_position, panel.mode, DisplayServer.window_get_mode(panel.get_window_id()), panel._fullscreen_transitioning])
 	assert(DisplayServer.window_get_size(panel.get_window_id()) == Vector2i(820, 465))
 	assert(DisplayServer.window_get_position(panel.get_window_id()) == Vector2i(40, 40))
-	print("MUSIC_FULLSCREEN_RESTORE_QA_OK same_window_node=true size=820x465 position=40,40 pointer_exit=true")
+	print("MUSIC_FULLSCREEN_RESTORE_QA_OK size=820x465 position=40,40 pointer_exit=true")
 	panel.enter_fullscreen()
-	for _frame in 8:
+	for _frame in 10:
 		await process_frame
 	assert(panel.is_fullscreen_active())
 	var second_window_id := panel.get_immersive_window_id()
 	assert(second_window_id != DisplayServer.INVALID_WINDOW_ID)
-	assert(panel._immersive_view.get_parent() == panel)
+	assert(panel._immersive_view.get_parent() == panel._immersive_window)
 	await create_timer(0.3).timeout
-	var second_texture := panel.get_texture()
-	if second_texture:
-		var second_image := second_texture.get_image()
-		if second_image and not second_image.is_empty():
-			assert(_image_has_visible_content(second_image))
-			assert(_image_has_player_palette(second_image))
-	print("MUSIC_FULLSCREEN_REENTER_QA_OK same_window_node=true content_visible=true")
+	var second_image := panel._immersive_window.get_texture().get_image()
+	assert(second_image and not second_image.is_empty())
+	assert(_image_has_visible_content(second_image))
+	assert(_image_has_player_palette(second_image))
+	print("MUSIC_FULLSCREEN_REENTER_QA_OK fresh_window=true content_visible=true")
 	var escape := InputEventKey.new()
 	escape.keycode = KEY_ESCAPE
 	escape.pressed = true
-	panel.push_input(escape, true)
+	panel._immersive_window.push_input(escape, true)
 	await create_timer(0.35).timeout
 	assert(not panel.is_fullscreen_active())
-	assert(panel.get_window_id() != DisplayServer.INVALID_WINDOW_ID)
+	assert(not is_instance_valid(panel._immersive_window))
 	panel.hide_panel()
 	quit(0)
 
