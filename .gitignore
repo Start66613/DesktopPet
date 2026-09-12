@@ -38,6 +38,7 @@ logs/
 .history-rebuild-git/
 .git-before-history/
 .git-before-history-*/
+.screenshot-userdata/
 *.log
 tools/*.exe
 tools/*.pdb

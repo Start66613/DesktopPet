@@ -26,13 +26,23 @@ qianqian DesktopPet 是一款使用 **Godot 4** 开发的 Windows 少女桌宠�
 
 ## 截图预览
 
-| 桌面互动 | 音乐中心 |
+| 桌面互动 | 她的日常 |
 | --- | --- |
-| ![qianqian 在桌面上弹出气泡](docs/images/desktop-pet-interaction.png) | ![qianqian 少女风格音乐中心](docs/images/music-player.png) |
+| ![qianqian 在桌面上弹出气泡](docs/images/desktop-pet-interaction.png) | ![qianqian 的五项养成状态和日常互动](docs/images/care-panel.png) |
 
-| 陪伴与隐私设置 | 羽毛球小游戏 |
+| AI 聊天 | 主动陪伴设置 |
 | --- | --- |
-| ![主动陪伴和画面感知设置窗口](docs/images/companion-settings.png) | ![桌面羽毛球小游戏结算画面](docs/images/badminton-gameplay.png) |
+| ![qianqian 的少女风格 AI 聊天窗口](docs/images/ai-chat.png) | ![主动陪伴、前台应用和表达频率设置](docs/images/companion-settings.png) |
+
+| 音乐中心 | 小狗小屋 |
+| --- | --- |
+| ![本地播放器封面、歌词、进度和控制](docs/images/music-player.png) | ![小雪球的小屋与照料功能](docs/images/dog-home.png) |
+
+<p align="center">
+  <img src="docs/images/badminton-gameplay.png" width="820" alt="qianqian 桌面羽毛球对战" />
+</p>
+
+<p align="center">桌面羽毛球对战：鼠标球拍、连击、扣杀蓄力、计分与音效。</p>
 
 ## 功能总览
 
